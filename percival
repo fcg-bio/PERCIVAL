@@ -379,21 +379,37 @@ sub _annotation
 	my $annotFile = $prefix.".annot.vcf";
 
 
-	
 	# Print Command
 	my $command = "";
 	
+	
+	# SnpEff Annotation
+	
+	$command .= "\n\necho \"SnpEff annotation \" >&2\n";
+	if (defined $$self{SnpEffIntervals})
+	{
+		$command .= "java -Xmx4g -jar $$self{SnpEff} \\\n" ;
+		foreach my $intervalTag (split ",", $$self{SnpEffIntervals})
+		{
+			foreach my $interval (split ",", $$self{$intervalTag})
+			{
+				$command .= " -interval $interval \\\n";
+			}
+		}
+	} else {
+		$command .= "java -Xmx4g -jar $$self{SnpEff}" ;
+	}
+	$command .= " -c $$self{SnpEffConf} $$self{SnpEffOpt} $$self{SnpEffData} $$self{VCF} > $tmpFile2\n";
+	$command .= "mv $tmpFile2 $tmpFile1\n";
+	
+	
 	# SnpSift Annotation
-	$command .= "\n\necho \"SnpSift annotation \" >&2\n";
 	
-	# Generate temporary file
-	$command .= "gunzip -cf $$self{VCF} > $tmpFile1\n" if ($$self{VCF} =~ /.gz$/);
-	$command .= "cp $$self{VCF} $tmpFile1\n"  if ($$self{VCF} !~ /.gz$/);
-	
+	$command .= "\n\necho \"SnpSift annotation \" >&2\n";	
 	my @SnpSiftSteps = split ",", $$self{SnpSiftAnnot};
 	foreach my $step (@SnpSiftSteps)
 	{
-		if ($step ne "DBNSFP")
+		if ($step ne "DBNSFP" && $step ne "PHASTCONS" && $step ne "GWASCAT" && $step ne "GENESETS")
 		{
 			# Get info fieds from annotation file
 			my @INFO = _extract_INFO_flags_vcf($$self{$step});
@@ -401,9 +417,18 @@ sub _annotation
 			
 			$command .= "java -Xmx2g -jar $$self{SnpSift} annotate -info $info $$self{$step} $tmpFile1 > $tmpFile2\n";
 			$command .= "mv $tmpFile2 $tmpFile1\n";
-		} else {
-			$command .= "java -Xmx2g -jar $$self{SnpSift} dbnsfp -v $$self{$step} -f $$self{DBNSFPAnnot} $tmpFile1 | sed 's/GERP++/GERP/g' > $tmpFile2\n";
+		} elsif ($step eq "DBNSFP") {
+			$command .= "java -Xmx2g -jar $$self{SnpSift} dbnsfp -v $$self{$step} -f $$self{DBNSFPAnnot} $tmpFile1 | sed 's/GERP++/GERP/g' | sed 's/dbNSFP_//g'  > $tmpFile2\n";
 			$command .= "mv $tmpFile2 $tmpFile1\n";				
+		} elsif ($step eq "PHASTCONS") {
+			$command .= "java -Xmx2g -jar $$self{SnpSift} phastCons $$self{$step} $tmpFile1 > $tmpFile2\n";
+			$command .= "mv $tmpFile2 $tmpFile1\n";		
+		} elsif ($step eq "GWASCAT") {
+			$command .= "java -Xmx2g -jar $$self{SnpSift} gwasCat $$self{$step} $tmpFile1 > $tmpFile2\n";
+			$command .= "mv $tmpFile2 $tmpFile1\n";		
+		} elsif ($step eq "GENESETS") {
+			$command .= "java -Xmx2g -jar $$self{SnpSift} geneSets $$self{$step} $tmpFile1 > $tmpFile2\n";
+			$command .= "mv $tmpFile2 $tmpFile1\n";		
 		}
 		
 	}
@@ -414,29 +439,13 @@ sub _annotation
 	foreach my $step (@RegionSteps)
 	{
 		my $INFO = $step."_INFO";
+		print "Region-Based Annotation: ".$step."\t".$INFO."\n";
 		$command .= "cat $tmpFile1 | $$self{vcfAnnotate} -a $$self{$step} -d $$self{$INFO} -c CHROM,FROM,TO,INFO/$step | $$self{vcfSort} > $tmpFile2\n";	
 		$command .= "mv $tmpFile2 $tmpFile1\n";	
 	}
 
-	# SnpEff Annotation
-	$command .= "\n\necho \"SnpEff annotation \" >&2\n";
-
-	if (defined $$self{SnpEffIntervals})
-	{
-		$command .= "java -Xmx4g -jar $$self{SnpEff}" ;
-		foreach my $intervalTag (split ",", $$self{SnpEffIntervals})
-		{
-			foreach my $interval (split ",", $$self{$intervalTag})
-			{
-				$command .= " -interval $interval";
-			}
-		}
-	} else {
-		$command .= "java -Xmx4g -jar $$self{SnpEff}" ;
-	}
-	$command .= " -c $$self{SnpEffConf} $$self{SnpEffOpt} $$self{SnpEffData} $tmpFile1 > $tmpFile2\n";
-	$command .= "mv $tmpFile2 $annotFile\n";
-	$command .= "rm $tmpFile1\n";
+	# Create Final File
+	$command .= "mv $tmpFile1 $annotFile\n";
 	$command .= "bgzip -f $annotFile\n";
 	$command .= "tabix -p vcf ${annotFile}.gz\n";
 	
