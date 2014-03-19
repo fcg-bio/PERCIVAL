@@ -9,11 +9,6 @@ use File::Basename;
 use File::Spec;
 use List::Util qw(sum);
 
-# Pending
-#	1) Multi-Sample
-#	* Add sample name (SM) to BAM files
-#	* Apply Normal-Tumoral (multisample) Realignment
-
 
 &main;
 exit;
@@ -21,7 +16,7 @@ exit;
 
 sub _version
 {
-	return "20130614";
+	return "20120319";
 }
 
 sub main 
@@ -36,7 +31,7 @@ sub usage
 {
 	my $version = _version;
 	die(qq/
-# percival fcastro v.$version\n
+# percival fcastroginer@gmail.com v.$version\n
 
 # Utilities
 map		Fastq mapping and quality control
