@@ -1,0 +1,39 @@
+# Download files and databases for annotation of VCF files
+
+# 1. Map Mutations to genome annotations 
+{
+	# snpEff: uses GENCODE. In the context of ICGC, we recommend using the GENCODE12 comprehensive set of gene models for all gene-associated annotations and identifying the specific release that was used. We advocate the use of GENCODE annotations because of the detailed and frequently updated annotation of splice variants, pseudogenes and noncoding RNA loci, and the ready accessibility of all data for automated annotation via the Ensembl genome browser13 and the University of California Santa Cruz (UCSC) genome browser14. [from http://www.nature.com/nmeth/journal/v10/n8/full/nmeth.2562.html]
+}
+
+
+# 3. Functional scores annotation
+{
+	
+# PhastCons
+{
+# DESCRIPTION (46-way)
+#	This track shows predictions of conserved elements produced by the phastCons program. PhastCons is part of the PHAST (PHylogenetic Analysis with Space/Time models) package. The predictions are based on a phylogenetic hidden Markov model (phylo-HMM), a type of probabilistic model that describes both the process of DNA substitution at each site in a genome and the way this process changes from one site to the next.
+#	This directory contains compressed phastCons scores for multiple alignments of 59 vertebrate genomes to the mouse genome, plus three alternate sets of scores for subsets of species in the alignments.
+
+# FORMAT
+#	Column #1 contains a one-based position coordinate. Column #2 contains a score showing the posterior probability that phastCons's phylogenetic hidden Markov model (HMM) is in its most conserved state at that base position.
+
+# METHODS
+#        Best-in-genome pairwise alignments were generated for each species using blastz, followed by chaining and netting. A multiple alignment was then constructed from these pairwise alignments using multiz. Predictions of conserved elements were then obtained by running phastCons on the multiple alignments with the --most-conserved option.
+#       PhastCons constructs a two-state phylo-HMM with a state for conserved regions and a state for non-conserved regions. The two states share a single phylogenetic model, except that the branch lengths of the tree associated with the conserved state are multiplied by a constant scaling factor rho (0 <= rho <= 1). The free parameters of the phylo-HMM, including the scaling factor rho, are estimated from the data by maximum likelihood using an EM algorithm. This procedure is subject to certain constraints on the "coverage" of the genome by conserved elements and the "smoothness" of the conservation scores. Details can be found in Siepel et al. (2005).
+
+# The predicted conserved elements are segments of the alignment that are likely to have been "generated" by the conserved state of the phylo-HMM. Each element is assigned a log-odds score equal to its log probability under the conserved model minus its log probability under the non-conserved model. The "score" field associated with this track contains transformed log-odds scores, taking values between 0 and 1000. (The scores are transformed using a monotonic function of the form a * log(x) + b.) The raw log odds scores are retained in the "name" field and can be seen on the details page or in the browser when the track's display mode is set to "pack" or "full".
+
+
+# DOWNLOAD FILES MM10
+
+WDIR=$PWD
+mkdir -p PHASTCONS/
+cd PHASTCONS/
+
+lftp -e 'set net:timeout 10; cd goldenPath/mm10/phastCons60way/placental/; mget *placental.wigFix.gz; bye' -u anonymous,fcastro@well.ox.ac.uk hgdownload.cse.ucsc.edu
+cp /well/tomlinson/fcastro/data/genomes/mm10/mm10.fa.gz.fai genome.fai
+
+}
+
+}
