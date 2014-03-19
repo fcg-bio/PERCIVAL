@@ -31,7 +31,7 @@ sub usage
 {
 	my $version = _version;
 	die(qq/
-# percival fcastroginer@gmail.com v.$version\n
+# percival fcastroginer\@gmail.com v.$version\n
 
 # Utilities
 map		Fastq mapping and quality control
