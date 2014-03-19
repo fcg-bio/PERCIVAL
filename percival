@@ -1,0 +1,1148 @@
+#!/usr/bin/perl
+use strict;
+use warnings;
+use diagnostics;
+use Carp;
+use Cwd;
+use Getopt::Long;
+use File::Basename;
+use File::Spec;
+use List::Util qw(sum);
+
+# Pending
+#	1) Multi-Sample
+#	* Add sample name (SM) to BAM files
+#	* Apply Normal-Tumoral (multisample) Realignment
+
+
+&main;
+exit;
+
+
+sub _version
+{
+	return "20130614";
+}
+
+sub main 
+{
+  &usage if (@ARGV < 1);
+  my $command = shift(@ARGV);
+  my %func = (map=>\&map, varcall=>\&varcall, annotate=>\&annotate, error=>\&error_check);
+  &{$func{$command}};
+}
+
+sub usage 
+{
+	my $version = _version;
+	die(qq/
+# percival fcastro v.$version\n
+
+# Utilities
+map		Fastq mapping and quality control
+varcall		Variant calling and annotation
+annotate	Variant annotation
+error		Check errors
+
+\n/);
+}
+
+
+########################################################################
+
+# MAIN FUNCTIONS		################################################
+
+########################################################################
+
+# MAPPING
+
+sub map
+{
+	# Input Variables
+	my %opts = (CONF=>undef, SUBMIT=>undef, FASTQ1=>undef, FASTQ2=>undef, SAMPLE=>undef);
+
+	my $result = GetOptions ("c|conf:s"  => \$opts{CONF},
+							"s|submit:s"   => \$opts{SUBMIT},
+							"sm|sample:s"   => \$opts{SAMPLE},
+							"fastq1:s"   => \$opts{FASTQ1},
+							"fastq2:s"   => \$opts{FASTQ2});	
+
+    
+	my $usage = qq/
+	Usage:  percival map [options]
+	Options:
+		-c, --conf	REQ <FILE>	Configuration file. [\$opts{CONF}]
+		-sm, --sample	REQ <BOOLEAN> Sample name for read annotation during the mapping.[\$opts{SAMPLE}]
+		-fastq1		REQ <STR> 	Fastq file for end 1.[\$opts{FASTQ1}]
+		-fastq2		REQ <STR> 	Fastq file for end 2.[\$opts{FASTQ2}]
+		-s, --submit	OPT <BOOLEAN> 	Submit pipeline.[\$opts{SUBMIT}]
+	##\n\n/ ;             
+	
+	die ($usage) if ( !defined $opts{CONF} || !defined $opts{FASTQ1} || !defined $opts{SAMPLE} );
+
+	$opts{usage} = $usage;
+	my $opts = \%opts;
+
+	# COMPLETE PATH TO THE FILES
+	$$opts{FASTQ1} = File::Spec->rel2abs($$opts{FASTQ1});
+	$$opts{FASTQ2} = File::Spec->rel2abs($$opts{FASTQ2});
+	
+	# PIPELINE CONFIGURATION
+	my $conf = _configure_pipeline($opts, "map");
+
+	# CHANGE FASTQ DIRECTORY
+	chdir $$conf{dir};
+
+
+	#
+	# RUNNING FASTQ-PROCESS + MAPPING 
+	#
+	
+	my $fastq_dep="";
+	if ($$conf{SplitFactor} > 1)
+	{
+		for (my $s=1; $s <= $$conf{SplitFactor}; $s++)
+		{
+			my $fastqSlice_cmd = _fastq_slice($conf, $s);
+			my $fastqTrimm_cmd = _fastq_qc_PRINSEQ($conf, $s);
+			my $stampy_pe_cmd = _stampy($conf, $s, "pe");
+			my $stampy_se_cmd = _stampy($conf, $s, "se");
+			#my $gem_pe_cmd = _gem($conf, $s, "pe");
+			#my $gem_se_cmd = _gem($conf, $s, "se");
+
+			if ( defined $$conf{SUBMIT} )
+			{
+				my $fastqSlice_pid = _qsubmit($fastqSlice_cmd);
+				my $fastqTrimm_pid = _qsubmit($fastqTrimm_cmd, $fastqSlice_pid);
+				my $stampy_pe_pid = _qsubmit($stampy_pe_cmd, $fastqTrimm_pid);
+				my $stampy_se_pid = _qsubmit($stampy_se_cmd, $fastqTrimm_pid);
+				$fastq_dep .= $stampy_pe_pid.",".$stampy_se_pid;
+			}
+
+		}
+	} else {
+		my $s = 0;
+		
+		my ($fastq10,$fastq20) = ($$conf{FASTQ1},$$conf{FASTQ2});
+		$fastq10 =~ s/.fastq.gz/_0.fastq.gz/;
+		$fastq20 =~ s/.fastq.gz/_0.fastq.gz/;
+		my $res = `ln -s $$conf{FASTQ1} $fastq10; ln -s $$conf{FASTQ2} $fastq20`;
+	
+		my $fastqTrimm_cmd = _fastq_qc_PRINSEQ($conf, $s);
+		my $stampy_pe_cmd = _stampy($conf, $s, "pe");
+		my $stampy_se_cmd = _stampy($conf, $s, "se");
+		my $gem_pe_cmd = _gem($conf, $s, "pe");
+		my $gem_se_cmd = _gem($conf, $s, "se");
+
+		if ( defined $$conf{SUBMIT} )
+		{
+			my $fastqTrimm_pid = _qsubmit($fastqTrimm_cmd);
+			my $stampy_pe_pid = _qsubmit($stampy_pe_cmd, $fastqTrimm_cmd);
+			my $stampy_se_pid = _qsubmit($stampy_se_cmd, $fastqTrimm_cmd);
+			$fastq_dep .= $stampy_pe_pid.",".$stampy_se_pid;
+		}
+		
+	}
+
+	#
+	# RUNNING BAM PROCESSING
+	#
+		
+	my $rmDup_cmd = _rmDup ($conf);
+	my $indelRealignment_cmd = _indelRealignment_launch ($conf);
+	my $baseRecalibrator_cmd = _baseRecalibrator ($conf);
+	
+	my $ir_dep="";
+	if ( defined $$conf{SUBMIT} )
+	{
+		my $rmDup_pid = _qsubmit($rmDup_cmd, $fastq_dep);
+		foreach my $icmd (@{$indelRealignment_cmd}) 
+		{
+			my $pid = _qsubmit($icmd, $rmDup_pid);
+			$ir_dep .= ",".$pid;
+		}
+	}
+				
+
+
+	
+	# CHANGE WORKING DIRECTORY  
+	chdir $$conf{Wdir};
+	
+}
+
+sub varcall
+{
+	# Input Variables
+	my %opts = (CONF=>undef, SUBMIT=>undef, BAM=>undef, NSAMPLE=>undef, BYCHR=>undef, PREFIX=>undef, NCPU=>1, DIR=>".", VARCALL=>undef, platypus=>\&_platypus, samtools=>\&_samtools, ANNOTATE=>undef);
+
+	my $result = GetOptions ("c|conf:s"  => \$opts{CONF},
+							"v:s"   => \$opts{VARCALL},
+							"s|submit:s"   => \$opts{SUBMIT},
+							"bam:s"   => \$opts{BAM},
+							"n:s"   => \$opts{NSAMPLE},
+							"p|prefix:s"   => \$opts{PREFIX},
+							"d|dir:s"   => \$opts{DIR},
+							"a|annotate:s"   => \$opts{ANNOTATE},
+							"bychr:s"   => \$opts{BYCHR});	
+    
+	my $usage = qq/
+	Usage:  percival varcall [options]
+	Options:
+		-c, --conf	REQ <FILE>	Configuration file. [\$opts{CONF}]
+		-v	REQ <FILE>	Variant calling program to use. Options: platypus, samtools. [\$opts{VARCALL}]
+		-bam		REQ <STR> Comma separated list bam files.[\$opts{BAM}]
+		-p, --prefix		REQ <STR> Prefix for output file.[\$opts{PREFIX}]
+		-n		REQ <FLOAT> 	Number of samples.[\$opts{NSAMPLE}]
+		-bychr		REQ <BOOLEAN> 	Run variant calling by chromosomes. Require 
+				chromosomes list in configuration file.[\$opts{BYCHR}]
+		-d, --dir		OPT <STR> Directory for output file. Default ".".[\$opts{DIR}]
+		-a,--annotate		OPT <BOOLEAN> Annotate VCF with SnpSift, SnpEff and VCFtools.[\$opts{ANNOTATE}]
+		-s, --submit	OPT <BOOLEAN> 	Submit pipeline.[\$opts{SUBMIT}]
+	##\n\n/ ;             
+	
+	die ($usage) if ( !defined $opts{CONF} || !defined $opts{BAM} || !defined $opts{NSAMPLE} || !defined $opts{PREFIX} || !defined $opts{VARCALL});
+
+	$opts{usage} = $usage;
+	my $opts = \%opts;
+
+	# BAM Files to array
+	my @bam = split(",", $$opts{BAM});
+	delete $$opts{BAM};
+	
+	# Complete Path to the files
+	foreach my $bam (@bam)
+	{
+		$bam = File::Spec->rel2abs($bam) ;
+		push (@{$opts{BAM}}, $bam);
+	}
+	
+	# Pipeline Configuraton
+	my $conf = _configure_pipeline($opts, "varcall");
+
+	# Change directory
+	chdir $$conf{dir};
+
+	# Running Variant Calling + Annotation
+	my $vc_pid = "";
+	if(defined $$conf{BYCHR})
+	{
+		my @chr = split(",", $$conf{Chromosomes});
+		foreach my $chr (@chr)
+		{
+			my $varcall_cmd = $conf->{"$$conf{VARCALL}"}->($conf, $chr);
+			
+			if ( defined $$conf{SUBMIT} )
+			{
+				my $vc_chr_pid = _qsubmit($varcall_cmd);
+				$vc_pid .= $vc_pid.",".$vc_chr_pid;
+			}
+		}
+	} else {
+		my $varcall_cmd = $conf->{"$$conf{VARCALL}"}->($conf, "all");
+		$vc_pid = _qsubmit($varcall_cmd) if ( defined $$conf{SUBMIT} );
+	}
+		
+	# CHANGE WORKING DIRECTORY  
+	chdir $$conf{Wdir};
+	
+}
+
+sub annotate
+{
+	# Input Variables
+	my %opts = (CONF=>undef, SUBMIT=>undef, VCF=>undef, DIR=>".");
+
+	my $result = GetOptions ("c|conf:s"  => \$opts{CONF},
+							"s|submit:s"   => \$opts{SUBMIT},
+							"vcf:s"   => \$opts{VCF});	
+    
+	my $usage = qq/
+	Usage:  percival annotate [options]
+	Options:
+		-c, --conf	REQ <FILE>	Configuration file. [\$opts{CONF}]
+		-vcf		REQ <STR> VCF file.[\$opts{BAM}]
+		-s, --submit	OPT <BOOLEAN> 	Submit pipeline.[\$opts{SUBMIT}]
+	##\n\n/ ;             
+	
+	die ($usage) if ( !defined $opts{CONF} || !defined $opts{VCF});
+
+	$opts{usage} = $usage;
+	my $opts = \%opts;
+	
+	# Complete Path to the files
+	$opts{VCF} = File::Spec->rel2abs($opts{VCF}) ;
+	
+	# Pipeline Configuraton
+	my $conf = _configure_pipeline($opts, "annotate");
+
+	# Change directory
+	chdir $$conf{dir};
+	
+	# File Prefix
+	$$conf{PREFIX} = qx(basename $$conf{VCF});
+	chomp $$conf{PREFIX};
+	$$conf{PREFIX} =~ s/.gz//;
+	$$conf{PREFIX} =~ s/.vcf//;
+	
+	# nCPUs
+	my $nCPU = 2;
+	# Increase $nCPU if intervals are defined for the annotation
+	$nCPU = 4 if(defined $$conf{SnpEffIntervals});
+	
+	# Print Command
+	my $cmdout;
+	my $cmdfile = $$conf{PREFIX}."_annotate.sh";
+	$cmdout =  CMDFile->new();
+	$cmdout->jobName($$conf{PREFIX}."_annotate");
+	$cmdout->initialdir($$conf{dir});
+	$cmdout->queue("short.qa");
+	$cmdout->output($$conf{dir}."/".$$conf{PREFIX}."_annotate".'_$JOB_ID.out');
+	$cmdout->error($$conf{dir}."/".$$conf{PREFIX}."_annotate".'_$JOB_ID.err');
+	$cmdout->cpuTask($nCPU);
+		
+	my $command = "\n\necho \"Variant Annotation : $$conf{VCF} \" >&2\n";
+	$command = _annotation($conf);
+	$cmdout->command($command);
+	$cmdout->print($cmdfile);
+	
+	_qsubmit($cmdfile) if ( defined $$conf{SUBMIT} );
+		
+	# CHANGE WORKING DIRECTORY  
+	chdir $$conf{Wdir};
+	
+}
+
+sub error_check
+{
+	use File::Find;
+	
+	# Input Variables
+	my %opts = (DIR=>undef);
+
+	my $result = GetOptions ("d|dit:s"  => \$opts{DIR});	
+    
+	my $usage = qq/
+	Usage:  percival error -d [path to directory]
+	Options:
+		-d, --dir	REQ <STR>	Path to folder with *.err files. [\$opts{DIR}]
+	##\n\n/ ;             
+	
+	die ($usage) if ( !defined $opts{DIR});
+	opendir(my $dh, $opts{DIR}) || die ("ERR: directory doesn't exist");
+	
+	my @files = split("\n", `ls $opts{DIR}/*err`);
+	
+	foreach my $file (@files)
+	{
+		my $lastL = undef;
+		$lastL = `tail -n1 $file`;
+		
+		if ($lastL !~/sys/ && $lastL !~/^END/)
+		{
+			print $file."\tIncorrect end\n";
+		}
+		else
+		{
+			my $res = undef;
+			$res = `awk 'BEGIN{IGNORECASE = 1}{if(/error|failed|killed|cancell|corrupt|illegal|segmentation|uninitialized|usage|unexpected|denied|inconsistent|warning|trunkated|exception/ && !/float_of_quality/ && !/IGNORE_WARNINGS/){ print; exit 1 }}' $file `;
+			if ($res =~/\w+/)
+			{
+				print $file."\n";
+				print $res."\n";
+			} 
+		}
+		
+	}
+}
+
+
+########################################################################
+
+# AUXILIARY FUNCTIONS ##################################################
+
+########################################################################
+
+sub _annotation
+{
+	my ($self) = @_;
+		
+	# File Prefix
+	my $prefix = qx(basename $$self{VCF});
+	chomp $prefix;
+	$prefix =~ s/.gz//;
+	$prefix =~ s/.vcf//;
+
+	# Temporary and final files
+	my $tmpFile1 = $prefix.".tmp1";
+	my $tmpFile2 = $prefix.".tmp2";
+	my $annotFile = $prefix.".annot.vcf";
+
+
+	
+	# Print Command
+	my $command = "";
+	
+	# SnpSift Annotation
+	$command .= "\n\necho \"SnpSift annotation \" >&2\n";
+	
+	# Generate temporary file
+	$command .= "gunzip -cf $$self{VCF} > $tmpFile1\n" if ($$self{VCF} =~ /.gz$/);
+	$command .= "cp $$self{VCF} $tmpFile1\n"  if ($$self{VCF} !~ /.gz$/);
+	
+	my @SnpSiftSteps = split ",", $$self{SnpSiftAnnot};
+	foreach my $step (@SnpSiftSteps)
+	{
+		if ($step ne "DBNSFP")
+		{
+			# Get info fieds from annotation file
+			my @INFO = _extract_INFO_flags_vcf($$self{$step});
+			my $info = join(",", @INFO);
+			
+			$command .= "java -Xmx2g -jar $$self{SnpSift} annotate -info $info $$self{$step} $tmpFile1 > $tmpFile2\n";
+			$command .= "mv $tmpFile2 $tmpFile1\n";
+		} else {
+			$command .= "java -Xmx2g -jar $$self{SnpSift} dbnsfp -v $$self{$step} -f $$self{DBNSFPAnnot} $tmpFile1 | sed 's/GERP++/GERP/g' > $tmpFile2\n";
+			$command .= "mv $tmpFile2 $tmpFile1\n";				
+		}
+		
+	}
+	
+	# Region-based annotation - vcf-tools : vcfAnnotate
+	$command .= "\n\necho \"Region-based vcf-annotate annotation \" >&2\n";
+	my @RegionSteps = split ",", $$self{RegionAnnotConf};
+	foreach my $step (@RegionSteps)
+	{
+		my $INFO = $step."_INFO";
+		$command .= "cat $tmpFile1 | $$self{vcfAnnotate} -a $$self{$step} -d $$self{$INFO} -c CHROM,FROM,TO,INFO/$step | $$self{vcfSort} > $tmpFile2\n";	
+		$command .= "mv $tmpFile2 $tmpFile1\n";	
+	}
+
+	# SnpEff Annotation
+	$command .= "\n\necho \"SnpEff annotation \" >&2\n";
+
+	if (defined $$self{SnpEffIntervals})
+	{
+		$command .= "java -Xmx4g -jar $$self{SnpEff}" ;
+		foreach my $intervalTag (split ",", $$self{SnpEffIntervals})
+		{
+			foreach my $interval (split ",", $$self{$intervalTag})
+			{
+				$command .= " -interval $interval";
+			}
+		}
+	} else {
+		$command .= "java -Xmx4g -jar $$self{SnpEff}" ;
+	}
+	$command .= " -c $$self{SnpEffConf} $$self{SnpEffOpt} $$self{SnpEffData} $tmpFile1 > $tmpFile2\n";
+	$command .= "mv $tmpFile2 $annotFile\n";
+	$command .= "rm $tmpFile1\n";
+	$command .= "bgzip -f $annotFile\n";
+	$command .= "tabix -p vcf ${annotFile}.gz\n";
+	
+	return $command;
+}
+
+sub _extract_INFO_flags_vcf
+{
+	my $vcf = $_[0];
+	my @res = ();
+	print STDOUT "Selecting INFO fields for $vcf\n";
+	my $infoInput = qx(zgrep ##INFO $vcf);
+	my @lines = split /\n/, $infoInput;
+	foreach my $line (@lines) {
+		$line =~ m/##INFO=<ID=(\w+)/;
+		push (@res, $1);
+	}
+	return @res;
+}
+
+sub _platypus
+{
+	my ($self, $region) = @_;
+	
+	# Regions
+	my $rq = "";
+	$rq = "_".$region if ($region ne "all");
+	
+	# Collapse BAM files (to csv)
+	my $bam = join (",", @{$$self{BAM}});
+	
+	# Output file
+	my $vcf = $$self{dir}."/".$$self{PREFIX}.$rq."_platypus.vcf";
+	$$self{VCF} = $vcf;	
+	my $log = $$self{dir}."/".$$self{PREFIX}.$rq."_platypus.log";
+	my $skip = $$self{dir}."/".$$self{PREFIX}.$rq."_platypus.skip_regions.txt";
+	
+	# Extract number of CPU from platypus arguments
+	$$self{PlatypusArgv} =~ m/nCPU=(\d+)/;
+	my $nCPU = $1;
+	# Increase $nCPU if intervals are defined for the annotation
+	$nCPU = 2 if(defined $$self{ANNOTATE} && $nCPU < 2 );
+	$nCPU = 4 if(defined $$self{SnpEffIntervals} && defined $$self{ANNOTATE} && $nCPU < 4 );
+	
+	# Print Command
+	my $cmdout;
+	my $cmdfile = $$self{PREFIX}.$rq."_platypus".".sh";
+	$cmdout =  CMDFile->new();
+	$cmdout->jobName($$self{PREFIX}.$rq."_platypus");
+	$cmdout->initialdir($$self{dir});
+	$cmdout->queue("long.qa") if(! defined $$self{BYCHR});
+	$cmdout->queue("short.qa") if(defined $$self{BYCHR});
+	$cmdout->output($$self{dir}."/".$$self{PREFIX}.$rq."_platypus".'_$JOB_ID.out');
+	$cmdout->error($$self{dir}."/".$$self{PREFIX}.$rq."_platypus".'_$JOB_ID.err');
+	$cmdout->cpuTask($nCPU);
+		
+	my $command = "\n\necho \"Platypus Variant Calling region : $region \" >&2\n";
+	$command .= "python $$self{Platypus} callVariants --refFile=$$self{GENOMEUNZIP} --bamFiles=$bam -n $$self{NSAMPLE} --logFileName=$log --skipRegionsFile=$skip --output=$vcf --regions=$region $$self{PlatypusArgv}\n" if ($region ne "all");
+	$command .= "python $$self{Platypus} callVariants --refFile=$$self{GENOMEUNZIP} --bamFiles=$bam -n $$self{NSAMPLE} --logFileName=$log --skipRegionsFile=$skip --output=$vcf $$self{PlatypusArgv}\n" if ($region eq "all");
+	
+	$command .= "gzip $vcf\n";
+	$$self{VCF} = $vcf.".gz";
+
+	if (defined $$self{ANNOTATE}) 
+	{
+		$command .= _annotation($self);
+	}
+	
+	$cmdout->command($command);
+	$cmdout->print($cmdfile);
+	
+	return $cmdfile;
+}
+
+sub _samtools
+{
+	my ($self, $region) = @_;
+	
+	# Regions
+	my $rq = "";
+	$rq = "_".$region if ($region ne "all");
+	
+	# Output file
+	my $vcf = $$self{dir}."/".$$self{PREFIX}.$rq."_samtools.vcf";
+	$$self{VCF} = $vcf;
+	
+	# Extract number of CPU from platypus arguments
+	my $nCPU = 1;
+	
+	# Increase $nCPU if intervals are defined for the annotation
+	$nCPU = 4 if(defined $$self{SnpEffIntervals} && defined $$self{ANNOTATE} && $nCPU < 4 );
+	
+	# Print Command
+	my $cmdout;
+	my $cmdfile = $$self{PREFIX}.$rq."_samtools".".sh";
+	$cmdout =  CMDFile->new();
+	$cmdout->jobName($$self{PREFIX}.$rq."_samtools");
+	$cmdout->initialdir($$self{dir});
+	$cmdout->queue("long.qa");
+	$cmdout->output($$self{dir}."/".$$self{PREFIX}.$rq."_samtools".'_$JOB_ID.out');
+	$cmdout->error($$self{dir}."/".$$self{PREFIX}.$rq."_samtools".'_$JOB_ID.err');
+	$cmdout->cpuTask($nCPU);
+
+	my $command = "\n\necho \"Samtools Variant Calling region : $region \" >&2\n";
+	
+	$command .= "$$self{SAMTOOLS} mpileup -DSugf $$self{GENOME} -r $region $$self{MPILEUPPAR} @{$$self{BAM}} | $$self{BCFTOOLS} view $$self{BCFTOOLSPAR} -bvcg - | $$self{BCFTOOLS} view - > $vcf\n" if ($region ne "all");
+	$command .= "$$self{SAMTOOLS} mpileup -DSugf $$self{GENOME} $$self{MPILEUPPAR} @{$$self{BAM}} | $$self{BCFTOOLS} view $$self{BCFTOOLSPAR} -bvcg - | $$self{BCFTOOLS} view - > $vcf\n" if ($region eq "all");
+	
+	$command .= "gzip $vcf\n";
+	
+	if (defined $$self{ANNOTATE}) 
+	{
+		$command .= _annotation($self);
+	}
+	
+
+	$cmdout->command($command);
+	$cmdout->print($cmdfile);
+	
+	return $cmdfile;
+}
+
+sub _load_conf_file
+{
+	my ($file) = @_;
+	die ("Error: Configuration file does not exists")  if ( !-r $file );
+	open (CONF,"<",$file);
+	my %out;
+	while (<CONF>) 
+	{
+		if(!/^#/ && /\w+/)
+		{
+			chomp;
+			my ($key,$val) = split(/=([^:]+)$/,$_);
+			$out{$key} = $val;
+		}
+	}
+	return \%out;
+}
+
+sub _qsubmit 
+{
+    my ( $file, $dep ) = @_;
+    print $file."\n";
+    my $pid;
+    if ( ! defined $dep ) 
+    {
+		$pid = `qsub $file | cut -d " " -f 3`;
+		chomp $pid;
+		print "Calling ".$file." ... $pid\n";
+	}
+	else
+	{
+		$pid = `qsub -hold_jid $dep $file  | cut -d " " -f 3`;
+		chomp $pid;
+		print "Calling ".$file." ... $pid : $dep\n";
+	}
+    
+    return $pid;
+}
+
+sub _configure_pipeline
+{
+	my ($self, $command) = @_;
+	
+	# READING CONFIGURATION FILE
+	print "Configuration file : ".$$self{CONF},"\n";
+	die ($$self{usage}."Error: $$self{CONF} is not readable") if ( !-r $$self{CONF});
+	my $out = _load_conf_file ( $$self{CONF} );
+	
+	# ADDITIONAL CONFIGURATION AND ARGUMENTS
+	for my $i (keys %{$self}){
+		$$out{$i} = $$self{$i};
+	}
+		
+	$$out{Wdir} = getcwd;
+	
+	# Map Arguments
+	if ( $command eq 'map')
+	{
+		$$out{dir} = dirname($$self{FASTQ1});
+		$$out{PREFIX} = basename($$self{FASTQ1});
+		$$out{PREFIX} =~ s/_1.fastq.gz//;
+		$$out{PREFIX} =~ s/_1.fastq//;
+		$$out{FASTQ1} = basename($$self{FASTQ1});
+		$$out{FASTQ2} = basename($$self{FASTQ2});
+	}
+	
+	# Variant Calling Arguments
+	if ( $command eq 'varcall')
+	{
+		$$out{dir} = File::Spec->rel2abs($$self{DIR});
+		$$out{PREFIX} = $$self{PREFIX};
+	}
+	
+	# Variant Annotation Arguments
+	if ( $command eq 'annotate')
+	{
+		$$out{dir} = File::Spec->rel2abs($$self{DIR});
+	}
+	
+	
+	return $out;
+}
+
+sub _fastq_slice
+{
+	my ($self, $i) = @_;
+	my ($fastq1i,$fastq2i) = ($$self{FASTQ1},$$self{FASTQ2});
+	$fastq1i =~ s/.fastq.gz/_${i}.fastq.gz/;
+	$fastq2i =~ s/.fastq.gz/_${i}.fastq.gz/;
+
+	# Print Command
+	my $cmdout;
+	my $cmdfile = $$self{PREFIX}."_".$i.'_fastqSlice.sh';
+	$cmdout =  CMDFile->new();
+	$cmdout->jobName($$self{PREFIX}."_".$i.'_fastqSlice');
+	$cmdout->initialdir($$self{dir});
+	$cmdout->queue("short.qa");
+	$cmdout->output($$self{dir}."/".$$self{PREFIX}."_".$i.'_fastqSlice_$JOB_ID.out');
+	$cmdout->error($$self{dir}."/".$$self{PREFIX}."_".$i.'_fastqSlice_$JOB_ID.err');
+	$cmdout->cpuTask('2');
+
+	my $command = "\n\necho \"Split FASTQ : $i / $$self{SplitFactor} \" >&2";
+	my ($fastq1tmp,$fastq2tmp) = ($$self{FASTQ1},$$self{FASTQ2});
+	if ($$self{FASTQ1} =~ /gz$/)
+	{
+		$fastq1tmp =~ s/.fastq.gz/_${i}.fastq.tmp/;
+		$fastq2tmp =~ s/.fastq.gz/_${i}.fastq.tmp/;
+		$command .= "\nmkfifo $fastq1tmp $fastq2tmp";
+		$command .= "\ngunzip -fc < $$self{FASTQ1} > $fastq1tmp &";
+		$command .= "\ngunzip -fc < $$self{FASTQ2} > $fastq2tmp &";
+	}
+	
+	$command .= "\n$$self{FastqSlice} $i $$self{SplitFactor} < $fastq1tmp | gzip -cf > $fastq1i &";
+	$command .= "\n$$self{FastqSlice} $i $$self{SplitFactor} < $fastq2tmp | gzip -cf > $fastq2i &";
+	$command .= "\nwait";
+	$command .= "\nrm $fastq1tmp $fastq2tmp";
+
+	$cmdout->command($command);	
+	$cmdout->print($cmdfile);
+	
+	return $cmdfile;
+}
+
+sub _fastq_qc_PRINSEQ
+{
+	my ($self, $i) = @_;
+	my ($fastq1i,$fastq2i) = ($$self{FASTQ1},$$self{FASTQ2});
+	$fastq1i =~ s/.fastq.gz/_${i}.fastq.gz/;
+	$fastq2i =~ s/.fastq.gz/_${i}.fastq.gz/;
+	my $fastqGood = $$self{PREFIX}."_".${i}."_trimm";
+	my $fastqBad = $$self{PREFIX}."_".${i}."_out";
+
+
+	# Print Command
+	my $cmdout;
+	my $cmdfile = $$self{PREFIX}."_".$i.'_fastqQC.sh';
+	$cmdout =  CMDFile->new();
+	$cmdout->jobName($$self{PREFIX}."_".$i.'_fastqQC');
+	$cmdout->initialdir($$self{dir});
+	$cmdout->queue("long.qa");
+	$cmdout->output($$self{dir}."/".$$self{PREFIX}."_".$i.'_fastqQC_$JOB_ID.out');
+	$cmdout->error($$self{dir}."/".$$self{PREFIX}."_".$i.'_fastqQC_$JOB_ID.err');
+	$cmdout->cpuTask('1');
+
+	my $command = "\n\necho \"Quality control FASTQ : $i / $$self{SplitFactor} \" >&2";
+	$command .= "\nperl $$self{Prinseq} gunzip -fastq $fastq1i -fastq2 $fastq2i -out_good $fastqGood -out_bad $fastqBad $$self{PrinseqArgv}";
+
+	$cmdout->command($command);
+	$cmdout->print($cmdfile);
+	
+	return $cmdfile;
+}
+
+sub _stampy
+{
+	my ($self, $i, $end) = @_;
+	my ($fastq1i,$fastq2i) = ($$self{FASTQ1},$$self{FASTQ2});
+	my $bam_prefix = $$self{PREFIX}."_".${i}."_stampy_".$end;
+	my $bam = $$self{PREFIX}."_".${i}."_stampy_".$end.".bam";
+	my $bam_prefix1 = $$self{PREFIX}."_".${i}."_stampy_".$end."1";
+	my $bam1 		= $$self{PREFIX}."_".${i}."_stampy_".$end."1.bam";
+	my $bam_prefix2 = $$self{PREFIX}."_".${i}."_stampy_".$end."2";
+	my $bam2 		= $$self{PREFIX}."_".${i}."_stampy_".$end."2.bam";
+	
+	@{$$self{BAMMAP}} = () if (!defined $$self{BAMMAP});
+	
+	push (@{$$self{BAMMAP}}, $bam) if ($end eq 'pe');
+	push (@{$$self{BAMMAP}}, $bam1) if ($end eq 'se');
+	push (@{$$self{BAMMAP}}, $bam2) if ($end eq 'se');
+
+	# Print Command
+	my $cmdout;
+	my $cmdfile = $$self{PREFIX}."_".$i."_BamStampy_".$end.".sh";
+	$cmdout =  CMDFile->new();
+	$cmdout->jobName($$self{PREFIX}."_".$i."_BamStampy_".$end);
+	$cmdout->initialdir($$self{dir});
+	$cmdout->queue("short.qa");
+	$cmdout->output($$self{dir}."/".$$self{PREFIX}."_".$i."_BamStampy_".$end.'_$JOB_ID.out');
+	$cmdout->error($$self{dir}."/".$$self{PREFIX}."_".$i."_BamStampy_".$end.'_$JOB_ID.err');
+	
+	my $command = "\n\necho \"Stampy FASTQ $end : $i / $$self{SplitFactor} \" >&2\n";	
+	if ($end eq 'pe')
+	{
+		$fastq1i =~ s/_1.fastq.gz/_${i}_trimm_1.fastq.gz/;
+		$fastq2i =~ s/_2.fastq.gz/_${i}_trimm_2.fastq.gz/;
+		$cmdout->cpuTask('2');
+		$command .= "$$self{STAMPY} -t 1 --bwa=$$self{BWA} --bwaoptions=\"$$self{GENOME}\" -g $$self{GENOME} -h $$self{GENOME} --readgroup=ID:$$self{PREFIX}_${end},SM:$$self{SAMPLE},PL:ILLUMINA --keepreforder -M $fastq1i $fastq2i | ";
+		$command .= "$$self{SAMTOOLS} view -Sb - > ${bam_prefix}_unsort.bam\n\n";
+		$command .= "$$self{SAMTOOLS} sort -om 2500000000 ${bam_prefix}_unsort.bam $bam_prefix > $bam\n\n";
+		$command .= "$$self{SAMTOOLS} index $bam\n";
+		$command .= "rm ${bam_prefix}_unsort.bam\n";
+		
+	} elsif ($end eq 'se') {
+		$fastq1i =~ s/_1.fastq.gz/_${i}_trimm_1_singletons.fastq.gz/;
+		$fastq2i =~ s/_2.fastq.gz/_${i}_trimm_2_singletons.fastq.gz/;
+		$cmdout->cpuTask('2');
+		$command .= "$$self{STAMPY} -t 1 --bwa=$$self{BWA} --bwaoptions=\"$$self{GENOME}\" -g $$self{GENOME} -h $$self{GENOME} --readgroup=ID:$$self{PREFIX}_${end},SM:$$self{SAMPLE},PL:ILLUMINA --keepreforder -M $fastq1i | ";
+		$command .= "$$self{SAMTOOLS} view -Sb - > ${bam_prefix1}_unsort.bam\n\n";
+		$command .= "$$self{SAMTOOLS} sort -om 2500000000 ${bam_prefix1}_unsort.bam $bam_prefix1 > $bam1\n\n";
+		$command .= "$$self{SAMTOOLS} index $bam1\n";
+		$command .= "$$self{STAMPY} -t 1 --bwa=$$self{BWA} --bwaoptions=\"$$self{GENOME}\" -g $$self{GENOME} -h $$self{GENOME} --readgroup=ID:$$self{PREFIX}_${end},SM:$$self{SAMPLE},PL:ILLUMINA --keepreforder -M $fastq2i | ";
+		$command .= "$$self{SAMTOOLS} view -Sb - > ${bam_prefix2}_unsort.bam\n\n";
+		$command .= "$$self{SAMTOOLS} sort -om 2500000000 ${bam_prefix2}_unsort.bam $bam_prefix1 > $bam2\n\n";
+		$command .= "$$self{SAMTOOLS} index $bam2\n";	
+		$command .= "rm ${bam_prefix1}_unsort.bam ${bam_prefix2}_unsort.bam\n";
+	}
+
+	$cmdout->command($command);
+	$cmdout->print($cmdfile);
+	
+	return $cmdfile;
+}
+
+sub _gem
+{
+	my ($self, $i, $end) = @_;
+	my ($fastq1i,$fastq2i) = ($$self{FASTQ1},$$self{FASTQ2});
+	my ($fastq1o,$fastq2o) = ($$self{FASTQ1},$$self{FASTQ2});
+	my $bam_prefix = $$self{PREFIX}."_".${i}."_gem_".$end;
+	my $bam = $$self{PREFIX}."_".${i}."_gem_".$end.".bam";
+	my $bam_prefix1 = $$self{PREFIX}."_".${i}."_gem_".$end."1";
+	my $bam1 		= $$self{PREFIX}."_".${i}."_gem_".$end."1.bam";
+	my $bam_prefix2 = $$self{PREFIX}."_".${i}."_gem_".$end."2";
+	my $bam2 		= $$self{PREFIX}."_".${i}."_gem_".$end."2.bam";
+	
+	@{$$self{BAMMAP}} = () if (!defined $$self{BAMMAP});
+	
+	push (@{$$self{BAMMAP}}, $bam) if ($end eq 'pe');
+	push (@{$$self{BAMMAP}}, $bam1) if ($end eq 'se');
+	push (@{$$self{BAMMAP}}, $bam2) if ($end eq 'se');
+
+	# Print Command
+	my $cmdout;
+	my $cmdfile = $$self{PREFIX}."_".$i."_BamGem_".$end.".sh";
+	$cmdout =  CMDFile->new();
+	$cmdout->jobName($$self{PREFIX}."_".$i."_BamGem_".$end);
+	$cmdout->initialdir($$self{dir});
+	$cmdout->queue("long.qa");
+	$cmdout->output($$self{dir}."/".$$self{PREFIX}."_".$i."_BamGem_".$end.'_$JOB_ID.out');
+	$cmdout->error($$self{dir}."/".$$self{PREFIX}."_".$i."_BamGem_".$end.'_$JOB_ID.err');
+	
+	my $command = "\n\necho \"Gem FASTQ $end : $i / $$self{SplitFactor} \" >&2\n";	
+	if ($end eq 'pe')
+	{
+		$fastq1i =~ s/.fastq.gz/_${i}_trimm_1.fastq.gz/;
+		$fastq2i =~ s/.fastq.gz/_${i}_trimm_2.fastq.gz/;
+		$fastq1o =~ s/.fastq.gz/_${i}_trimm_1.fastq/;
+		$fastq2o =~ s/.fastq.gz/_${i}_trimm_2.fastq/;
+		$cmdout->cpuTask('4');
+		$command .= "gzip -9 -fc < $fastq1i > $fastq1o &\n";
+		$command .= "gzip -9 -fc < $fastq2i > $fastq2o &\n";
+		$command .= "wait\n";
+		$command .= "$$self{GEMMAPPER} -I $$self{GENOME} -1 $fastq1o -2 $fastq2o $$self{GEMMAPPERARGV} | ";
+		$command .= "$$self{GEM2SAM} -I $$self{GENOME} $$self{GEM2SAM} --read-group ID=\'$$self{PREFIX}_${end}\',SM=\'$$self{SAMPLE}\',PL=\'ILLUMINA\' | ";
+		$command .= "$$self{SAMTOOLS} view -Sb - | $$self{SAMTOOLS} sort -om 3500000000 - $bam_prefix > $bam\n\n";
+		$command .= "$$self{SAMTOOLS} index $bam";
+		
+	} elsif ($end eq 'se') {
+		$fastq1i =~ s/.fastq.gz/_${i}_trimm_1_singletons.fastq.gz/;
+		$fastq2i =~ s/.fastq.gz/_${i}_trimm_2_singletons.fastq.gz/;
+		$fastq1o =~ s/.fastq.gz/_${i}_trimm_1_singletons.fastq/;
+		$fastq2o =~ s/.fastq.gz/_${i}_trimm_2_singletons.fastq/;
+		$cmdout->cpuTask('4');
+		$command .= "gzip -9 -fc < $fastq1i > $fastq1o &\n";
+		$command .= "gzip -9 -fc < $fastq2i > $fastq2o &\n";
+		$command .= "wait\n";
+		
+		$command .= "$$self{GEMMAPPER} -I $$self{GENOME} -i $fastq1o $$self{GEMMAPPERARGV} | ";
+		$command .= "$$self{GEM2SAM} -I $$self{GENOME} $$self{GEM2SAM} --read-group ID=\'$$self{PREFIX}_${end}\',SM=\'$$self{SAMPLE}\',PL=\'ILLUMINA\' | ";
+		$command .= "$$self{SAMTOOLS} view -Sb - | $$self{SAMTOOLS} sort -om 1000000000 - $bam_prefix1 > $bam1 &\n";
+		
+		$command .= "$$self{GEMMAPPER} -I $$self{GENOME} -i $fastq2o $$self{GEMMAPPERARGV} | ";
+		$command .= "$$self{GEM2SAM} -I $$self{GENOME} $$self{GEM2SAM} --read-group ID=\'$$self{PREFIX}_${end}\',SM=\'$$self{SAMPLE}\',PL=\'ILLUMINA\' | ";
+		$command .= "$$self{SAMTOOLS} view -Sb - | $$self{SAMTOOLS} sort -om 1000000000 - $bam_prefix2 > $bam2 &\n";
+		
+		$command .= "wait";
+		$command .= "$$self{SAMTOOLS} index $bam1 &\n";
+		$command .= "$$self{SAMTOOLS} index $bam2 &\n";
+		$command .= "wait";
+		
+	}
+
+
+	$cmdout->command($command);
+	$cmdout->print($cmdfile);
+	
+	return $cmdfile;
+}
+
+sub _rmDup
+{
+	my ($self) = @_;
+	$$self{BAM} = $$self{PREFIX}."_rmdup.bam";
+	
+	# Print Command
+	my $cmdout;
+	my $cmdfile = $$self{PREFIX}."_rmdup.sh";
+	$cmdout =  CMDFile->new();
+	$cmdout->jobName($$self{PREFIX}."_rmdup");
+	$cmdout->initialdir($$self{dir});
+	$cmdout->queue("short.qa");
+	$cmdout->output($$self{dir}."/".$$self{PREFIX}."_rmdup".'_$JOB_ID.out');
+	$cmdout->error($$self{dir}."/".$$self{PREFIX}."_rmdup".'_$JOB_ID.err');
+	$cmdout->cpuTask('3');
+	
+	my $command = "\n\necho \"Picard Removing Duplicates \" >&2\n\n";	
+
+	$command .= "java -Xmx6g -Djava.io.tmpdir=$$self{TmpFolder} -jar $$self{MDUP} \\";
+	$command .= "\n I=".join(" \\\n I=", @{$$self{BAMMAP}}). " \\";
+	$command .= "\n O=$$self{BAM} \\";
+	$command .= "\n METRICS_FILE=".$$self{PREFIX}."_rmdup_metrics.txt \\";
+	$command .= "\n AS=true \\";
+	$command .= "\n CREATE_INDEX=true\n\n";
+
+	
+	$cmdout->command($command);
+	$cmdout->print($cmdfile);
+	
+	return $cmdfile;
+}
+
+sub _indelRealignment_launch
+{
+	my ($self) = @_;
+
+	# CREATE GENOME INTERVALS FOR INDEL REALIGNMENT
+	
+	if (! -f $$self{GENOME} ) { warn ("Genome file ".$$self{GENOME}." do not exists\n"); last; }
+	if (! -f $$self{GENOME}.".fai" ) { warn ("Genome index for ".$$self{GENOME}." do not exists\n"); last; }
+	my $totalBases = `awk '{a=a+\$2}END{print a}' $$self{GENOME}.fai`; chomp $totalBases;
+	my $splitFactor = sprintf("%.0f", 1+($totalBases/$$self{SplitGenomeFactor}));
+	`$$self{fai2split} -l $splitFactor $$self{GENOME}.fai`;
+	
+
+	# RUN realignerTargetCreator BY SPLIT FACTOR
+	my @out;
+	for (my $isf = 1; $isf <= $$self{SplitGenomeFactor}; $isf++) 
+	{
+			push(@out, _indelRealignment($self, $isf));
+	}
+	
+	# We change the bam files
+	$$self{BAM} = $$self{BAMIR};
+	
+	return \@out
+}	
+
+sub _indelRealignment
+{	
+	my ($self, $i) = @_;
+	my $ibam  = $$self{BAM};
+
+	my $obam  = $$self{PREFIX}."_realigned_".$i.".bam";
+	@{$$self{BAMIR}} = () if (!defined $$self{BAMIR});
+	push (@{$$self{BAMIR}}, $obam);
+
+	# Print Command
+	my $cmdout;
+	my $cmdfile = $$self{PREFIX}."_".$i.'_realignment.sh';
+	$cmdout =  CMDFile->new();
+	$cmdout->jobName($$self{PREFIX}."_".$i.'_realignment');
+	$cmdout->initialdir($$self{dir});
+	$cmdout->queue("long.qa");
+	$cmdout->output($$self{dir}."/".$$self{PREFIX}."_".$i.'_realignment_$JOB_ID.out');
+	$cmdout->error($$self{dir}."/".$$self{PREFIX}."_".$i.'_realignment_$JOB_ID.err');
+	$cmdout->cpuTask('2');
+
+	my $command = "";
+
+	#	Realigner Target Creator
+	$command .= "\n\necho \"Realigner Target Creator $ibam : $i / $$self{SplitGenomeFactor} \" >&2";
+	$command .= "\ntime java -Xmx4g -Djava.io.tmpdir=$$self{TmpFolder} -jar $$self{GATK} \\";
+	$command .= "\n\t -T RealignerTargetCreator \\";
+	$command .= "\n\t -I $ibam \\";
+	$command .= "\n\t -R $$self{GENOME} \\";
+	if( exists $$self{knownIndels} )
+	{
+		my @knownIndels = split(",", $$self{knownIndels});
+		$command .= "\n\t --known ".join(" \\\n\t --known ", @knownIndels). " \\";
+	}
+
+	$command .= "\n\t -o CompleteIndelRealigner.$i.intervals \\";
+	$command .= "\n\t -L $i.split.intervals";
+	$command .= "\n\t if [ \$? != 0 ]; then echo \"JOB CANCEL : Error in java application\" >&2; exit 1; fi";
+	$command .="\n\n";
+
+	#	Indel Realingment
+	$command .= "\n\necho \"Indel Realingment $ibam : $i / $$self{SplitGenomeFactor} \" >&2";	
+	$command .= "\ntime java -Xmx4g -Djava.io.tmpdir=$$self{TmpFolder} -jar $$self{GATK} \\";
+	$command .= "\n\t -T IndelRealigner \\";
+	$command .= "\n\t -I $ibam \\";
+	$command .= "\n\t -R $$self{GENOME} \\";
+	$command .= "\n\t -targetIntervals CompleteIndelRealigner.$i.intervals \\";
+	$command .= "\n\t -L $i.split.intervals";
+	$command .= "\n\t -o $obam";
+	$command .= "\n\t if [ \$? != 0 ]; then echo \"JOB CANCEL : Error in java application\" >&2; exit 1; fi";	
+	
+	$cmdout->command($command);
+	$cmdout->print($cmdfile);
+	
+	return $cmdfile;
+}
+
+sub _baseRecalibrator
+{	
+	my ($self) = @_;
+	my @ibam = @{$$self{BAM}};
+	my $obam  = $$self{PREFIX}."_recalibrated.bam";
+
+
+	# Print Command
+	my $cmdout;
+	my $cmdfile = $$self{PREFIX}.'_recalibration.sh';
+	$cmdout =  CMDFile->new();
+	$cmdout->jobName($$self{PREFIX}.'_recalibration');
+	$cmdout->initialdir($$self{dir});
+	$cmdout->queue("long.qa");
+	$cmdout->output($$self{dir}."/".$$self{PREFIX}.'_recalibration_$JOB_ID.out');
+	$cmdout->error($$self{dir}."/".$$self{PREFIX}.'_recalibration_$JOB_ID.err');
+	$cmdout->cpuTask('1');
+
+	#	Base Recalibrator
+	my $command = "\n\necho \"Base Quality Recalibrator \" >&2";	
+	$command .= "\ntime java -Xmx4g -Djava.io.tmpdir=$$self{TmpFolder} -jar $$self{GATK} \\";
+	$command .= "\n\t -T BaseRecalibrator \\";
+	$command .= "\n\t -I ".join(" \\\n\t -I ", @ibam). " \\";
+	$command .= "\n\t -R $$self{GENOME} \\";
+	$command .= "\n\t -BQSR $$self{PREFIX}_recalibration.grp \\";
+	if( exists $$self{knownSnps} )
+	{
+		my @knownSnps = split(",", $$self{knownSnps});
+		$command .= "\n\t -knownSites ".join(" \\\n\t --known ", @knownSnps). " \\";
+	}
+	
+	#	Print Recalibrated Bam
+	$command = "\n\n\necho \"Print Recalibrated Reads \" >&2";	
+	$command .= "\ntime java -Xmx4g -Djava.io.tmpdir=$$self{TmpFolder} -jar $$self{GATK} \\";
+	$command .= "\n\t -T PrintReads \\";
+	$command .= "\n\t -I ".join(" \\\n\t -I ", @ibam). " \\";
+	$command .= "\n\t -R $$self{GENOME} \\";
+	$command .= "\n\t -BQSR $$self{PREFIX}_recalibration.grp \\";
+	$command .= "\n\t -o $obam \\";
+	
+	$cmdout->command($command);
+	$cmdout->print($cmdfile);
+	
+	$$self{PREFIX} = $obam;
+	
+	return $cmdfile;
+}
+
+
+
+
+
+
+########################################################################
+
+#	MODULE				################################################
+
+########################################################################
+
+
+package CMDFile;
+
+use strict;
+use warnings;
+use Carp;
+
+
+#constructor
+sub new {
+    my ($class) = @_;
+    my $self = {
+        _queue => undef,
+        _jobName => undef,
+        _initialdir => ".",
+        _output => undef,
+        _error => undef,
+        _cpuTask => undef,
+        _file => undef,
+    };
+    bless $self, $class;
+    return $self;
+}
+	
+sub queue {
+    my ( $self, $queue ) = @_;
+    $self->{_queue} = $queue if defined($queue);
+    return $self->{_queue};
+}
+	
+sub jobName {
+    my ( $self, $jobName ) = @_;
+    $self->{_jobName} = $jobName if defined($jobName);
+    return $self->{_jobName};
+}
+
+sub initialdir {
+    my ( $self, $initialdir ) = @_;
+    $self->{_initialdir} = $initialdir if defined($initialdir);
+    return $self->{_initialdir};
+}
+
+sub output {
+    my ( $self, $output ) = @_;
+    $self->{_output} = $output if defined($output);
+    return $self->{_output};
+}
+
+sub error {
+    my ( $self, $error ) = @_;
+    $self->{_error} = $error if defined($error);
+    return $self->{_error};
+}
+
+sub cpuTask {
+    my ( $self, $cpuTask ) = @_;
+    $self->{_cpuTask} = $cpuTask if defined($cpuTask);
+    return $self->{_cpuTask};
+}
+
+sub command {
+    my ( $self, $command ) = @_;
+    $self->{_command} = $command if defined($command);
+    return $self->{_command};
+}
+
+sub print {
+    my ($self,$file) = @_;
+    
+	if ( ! defined $file ) { carp "Unknown type"; return undef;}
+
+	open (CMDFILE,">",$file) or die "cannot open > $file: $!";
+
+	print CMDFILE "#!/bin/bash\n";
+    printf (CMDFILE "#\$ -N %s \n", $self->jobName );
+    printf (CMDFILE "#\$ -wd %s \n", $self->initialdir );
+    printf (CMDFILE "#\$ -q %s \n", $self->queue );
+    printf (CMDFILE "#\$ -o %s \n", $self->output );
+    printf (CMDFILE "#\$ -e %s \n", $self->error );
+    printf (CMDFILE "#\$ -pe shmem %s \n", $self->cpuTask );
+    
+    print CMDFILE "eval `perl -I ~/perl5/lib/perl5 -Mlocal::lib`\n";
+	print CMDFILE "source /users/fcastro/.bashrc\n";
+
+	print CMDFILE "date >&2\n";
+	print CMDFILE "printf START >&2; uptime >&2\n";
+	print CMDFILE "time (\n";
+	printf (CMDFILE "\t %s \n", $self->command );
+	print CMDFILE "printf END >&2; uptime >&2\n";
+	print CMDFILE ")\n";
+
+    $self->{_file} = $file if defined($file);
+    return $self->{_file};
+
+}
+
+sub submit {
+    my ( $self, $dep ) = @_;
+    my $pid;
+    if ( ! defined $dep ) 
+    {
+		$pid = `qsub $self->{_file} | cut -d " " -f 3`;
+		chomp $pid;
+		print "Calling ".$self->{_file}." ... $pid\n";
+	}
+	else
+	{
+		$pid = `qsub -hold_jid $dep $self->{_file}  | cut -d " " -f 3`;
+		chomp $pid;
+		print "Calling ".$self->{_file}." ... $pid : $dep\n";
+	}
+    
+    return $pid;
+}
+
+1;
+
+
+
+
+
+
+
+
+
