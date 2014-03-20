@@ -70,7 +70,7 @@ sub map
 		-sm, --sample	REQ <BOOLEAN> Sample name for read annotation during the mapping.[\$opts{SAMPLE}]
 		-fastq1		REQ <STR> 	Fastq file for end 1.[\$opts{FASTQ1}]
 		-fastq2		REQ <STR> 	Fastq file for end 2.[\$opts{FASTQ2}]
-		-s, --submit	OPT <BOOLEAN> 	Submit pipeline.[\$opts{SUBMIT}]
+		-s, --submit	OPT <BOOLEAN> 	Submit pipeline to Cluster3.[\$opts{SUBMIT}]
 	##\n\n/ ;             
 	
 	die ($usage) if ( !defined $opts{CONF} || !defined $opts{FASTQ1} || !defined $opts{SAMPLE} );
@@ -193,7 +193,7 @@ sub varcall
 				chromosomes list in configuration file.[\$opts{BYCHR}]
 		-d, --dir		OPT <STR> Directory for output file. Default ".".[\$opts{DIR}]
 		-a,--annotate		OPT <BOOLEAN> Annotate VCF with SnpSift, SnpEff and VCFtools.[\$opts{ANNOTATE}]
-		-s, --submit	OPT <BOOLEAN> 	Submit pipeline.[\$opts{SUBMIT}]
+		-s, --submit	OPT <BOOLEAN> 	Submit pipeline to Cluster3.[\$opts{SUBMIT}]
 	##\n\n/ ;             
 	
 	die ($usage) if ( !defined $opts{CONF} || !defined $opts{BAM} || !defined $opts{NSAMPLE} || !defined $opts{PREFIX} || !defined $opts{VARCALL});
@@ -257,7 +257,7 @@ sub annotate
 	Options:
 		-c, --conf	REQ <FILE>	Configuration file. [\$opts{CONF}]
 		-vcf		REQ <STR> VCF file.[\$opts{BAM}]
-		-s, --submit	OPT <BOOLEAN> 	Submit pipeline.[\$opts{SUBMIT}]
+		-s, --submit	OPT <BOOLEAN> 	Submit pipeline to Cluster3.[\$opts{SUBMIT}]
 	##\n\n/ ;             
 	
 	die ($usage) if ( !defined $opts{CONF} || !defined $opts{VCF});
@@ -281,9 +281,7 @@ sub annotate
 	$$conf{PREFIX} =~ s/.vcf//;
 	
 	# nCPUs
-	my $nCPU = 2;
-	# Increase $nCPU if intervals are defined for the annotation
-	$nCPU = 4 if(defined $$conf{SnpEffIntervals});
+	my $nCPU = $$conf{AnnotationCPUs};
 	
 	# Print Command
 	my $cmdout;
@@ -369,8 +367,10 @@ sub _annotation
 	$prefix =~ s/.vcf//;
 
 	# Temporary and final files
-	my $tmpFile1 = $prefix.".tmp1";
-	my $tmpFile2 = $prefix.".tmp2";
+	my $tmpFile1 = $prefix.".tmp1.vcf";
+	my $tmpFile2 = $prefix.".tmp2.vcf";	
+	my $tmpFile1gz = $prefix.".tmp1.vcf.gz";
+	my $tmpFile2gz = $prefix.".tmp2.vcf.gz";
 	my $annotFile = $prefix.".annot.vcf";
 
 
@@ -383,7 +383,7 @@ sub _annotation
 	$command .= "\n\necho \"SnpEff annotation \" >&2\n";
 	if (defined $$self{SnpEffIntervals})
 	{
-		$command .= "java -Xmx4g -jar $$self{SnpEff} \\\n" ;
+		$command .= "java -Xmx".$$self{SnpEffMem}." -jar $$self{SnpEff} \\\n" ;
 		foreach my $intervalTag (split ",", $$self{SnpEffIntervals})
 		{
 			foreach my $interval (split ",", $$self{$intervalTag})
@@ -392,7 +392,7 @@ sub _annotation
 			}
 		}
 	} else {
-		$command .= "java -Xmx4g -jar $$self{SnpEff}" ;
+		$command .= "java -Xmx".$$self{SnpEffMem}." -jar $$self{SnpEff}" ;
 	}
 	$command .= " -c $$self{SnpEffConf} $$self{SnpEffOpt} $$self{SnpEffData} $$self{VCF} > $tmpFile2\n";
 	$command .= "mv $tmpFile2 $tmpFile1\n";
@@ -410,38 +410,62 @@ sub _annotation
 			my @INFO = _extract_INFO_flags_vcf($$self{$step});
 			my $info = join(",", @INFO);
 			
-			$command .= "java -Xmx2g -jar $$self{SnpSift} annotate -info $info $$self{$step} $tmpFile1 > $tmpFile2\n";
+			$command .= "java -Xmx".$$self{SnpSiftMem}." -jar $$self{SnpSift} annotate -info $info $$self{$step} $tmpFile1 > $tmpFile2\n";
 			$command .= "mv $tmpFile2 $tmpFile1\n";
 		} elsif ($step eq "DBNSFP") {
-			$command .= "java -Xmx2g -jar $$self{SnpSift} dbnsfp -v $$self{$step} -f $$self{DBNSFPAnnot} $tmpFile1 | sed 's/GERP++/GERP/g' | sed 's/dbNSFP_//g'  > $tmpFile2\n";
+			$command .= "java -Xmx".$$self{SnpSiftMem}." -jar $$self{SnpSift} dbnsfp -v $$self{$step} -f $$self{DBNSFPAnnot} $tmpFile1 | sed 's/GERP++/GERP/g' | sed 's/dbNSFP_//g'  > $tmpFile2\n";
 			$command .= "mv $tmpFile2 $tmpFile1\n";				
 		} elsif ($step eq "PHASTCONS") {
-			$command .= "java -Xmx2g -jar $$self{SnpSift} phastCons $$self{$step} $tmpFile1 > $tmpFile2\n";
+			$command .= "java -Xmx".$$self{SnpSiftMem}." -jar $$self{SnpSift} phastCons $$self{$step} $tmpFile1 > $tmpFile2\n";
 			$command .= "mv $tmpFile2 $tmpFile1\n";		
 		} elsif ($step eq "GWASCAT") {
-			$command .= "java -Xmx2g -jar $$self{SnpSift} gwasCat $$self{$step} $tmpFile1 > $tmpFile2\n";
+			$command .= "java -Xmx".$$self{SnpSiftMem}." -jar $$self{SnpSift} gwasCat $$self{$step} $tmpFile1 > $tmpFile2\n";
 			$command .= "mv $tmpFile2 $tmpFile1\n";		
 		} elsif ($step eq "GENESETS") {
-			$command .= "java -Xmx2g -jar $$self{SnpSift} geneSets $$self{$step} $tmpFile1 > $tmpFile2\n";
+			$command .= "java -Xmx".$$self{SnpSiftMem}." -jar $$self{SnpSift} geneSets $$self{$step} $tmpFile1 > $tmpFile2\n";
 			$command .= "mv $tmpFile2 $tmpFile1\n";		
 		}
 		
 	}
 	
-	# Region-based annotation - vcf-tools : vcfAnnotate
-	$command .= "\n\necho \"Region-based vcf-annotate annotation \" >&2\n";
+	# Region-based annotation - bcftools
+	$command .= "\n\necho \"Region-based Bed annotation (bcftools annotation) \" >&2\n";
+	$command .= "cat $tmpFile1 | $$self{vcfSort} | bgzip -cf > $tmpFile1gz\n";
+	$command .= "$$self{bcftools} index -f $tmpFile1gz\n";
+	#$command .= "tabix -p vcf $tmpFile1gz\n";
+	
 	my @RegionSteps = split ",", $$self{RegionAnnotConf};
 	foreach my $step (@RegionSteps)
 	{
 		my $INFO = $step."_INFO";
+		$command .= "\n\necho \"Region-based Bed annotation : $step \" >&2\n";
 		print "Region-Based Annotation: ".$step."\t".$INFO."\n";
-		$command .= "cat $tmpFile1 | $$self{vcfAnnotate} -a $$self{$step} -d $$self{$INFO} -c CHROM,FROM,TO,INFO/$step | $$self{vcfSort} > $tmpFile2\n";	
-		$command .= "mv $tmpFile2 $tmpFile1\n";	
+		my %INFO;
+
+		foreach my $info (split(";", $$self{$INFO}))
+		{
+			my ($key, $val) = split /=/, $info;
+			$INFO{$key} = $val;
+		}
+		
+		if ($step eq "mapp"){
+			$command .= "echo \"##$INFO{key}=<ID=$INFO{ID},Number=$INFO{Number},Type=$INFO{Type},Description=$INFO{Description}>\" > $tmpFile1gz.header\n";
+			$command .= "$$self{bcftools} annotate -a $$self{$step} -h $tmpFile1gz.header -c CHROM,FROM,TO,INFO/$step $tmpFile1gz | $$self{vcfSort} | bgzip -cf > $tmpFile2gz\n";
+			$command .= "rm $tmpFile1gz.header\n";
+		} else {
+			my $description = "key=$INFO{key},ID=$INFO{ID},Number=$INFO{Number},Type=$INFO{Type},Description=$INFO{Description}";
+			$command .= "zcat $tmpFile1.gz | $$self{vcfAnnotate} -a $$self{$step} -d $description  -c CHROM,FROM,TO,INFO/$step | $$self{vcfSort} | bgzip -cf > $tmpFile2gz\n";
+		
+		}
+			
+		$command .= "mv $tmpFile2gz $tmpFile1gz\n";
+		$command .= "$$self{bcftools} index -f $tmpFile1gz\n";
 	}
 
 	# Create Final File
-	$command .= "mv $tmpFile1 $annotFile\n";
-	$command .= "bgzip -f $annotFile\n";
+	$command .= "\n\necho \"Creating final file \" >&2\n";
+	$command .= "mv $tmpFile1gz $annotFile.gz\n";
+	$command .= "rm $tmpFile1gz.* $tmpFile1\n";
 	$command .= "tabix -p vcf ${annotFile}.gz\n";
 	
 	return $command;
