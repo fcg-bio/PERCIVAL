@@ -18,10 +18,11 @@ mkdir TRANSCRIPT_INFO
 # ENSEMBL
 #	"The canonical transcript is defined as either the longest CDS, if the gene has translated transcripts, or the longest cDNA. Should a transcript already regarded as canonical not be selected using the above rules, there is support for storing this information in the Ensembl database." (http://blog.kokocinski.net/index.php/canonical-transcripts?blog=2)
 #	For human, the canonical transcript for a gene is set according to the following hierarchy: 1. Longest CCDS translation with no stop codons. 2. If no (1), choose the longest Ensembl/Havana merged translation with no stop codons. 3. If no (2), choose the longest translation with no stop codons. 4. If no translation, choose the longest non-protein-coding transcript.
+#	http://www.biostars.org/p/44763/
 
 WDIR=$PWD
 cd TRANSCRIPT_INFO
-perl /well/tomlinson/fcastro/devel/UTILS/Ensembl_Transcripts.pl > TRANSCRIPT_INFO/hsapiens.ensembl75.canonical_transcripts.txt
+perl ~/devel/UTILS/get_Ensembl_Canonical_Transcripts.pl | awk 'BEGIN{OFS="\t"; print "Transcript\tTXcanonical"} {print $1,1}' > hsapiens.ensembl75.canonical_transcripts.txt
 cd $WDIR
 
 }
@@ -372,9 +373,9 @@ wget ftp://ftp.sanger.ac.uk/pub/CGP/cosmic/data_export/cancer_gene_census.tsv
 dos2unix -c Mac cancer_gene_census.tsv
 # Save into Cosmic_v68_cancer_gene_census.tsv, adding a header and new column. FORMAT:
 #"GENE\tCOSMIC_consensus"
-#"ABL2\t1"
+#"ABL2\tCGC_dom"
 
-awk 'BEGIN{print "GENE\tCOSMIC_consensus"}!/^Symbol/{print $1"\t1"}' cancer_gene_census.tsv  > Cosmic_cancer_gene_census_v68.tsv
+cat cancer_gene_census.tsv | awk 'BEGIN{FS="\t";OFS="\t"}{for(i=1; i<=NF; ++i){if($i=="" ){$i="NA"}}; print $_}' | awk 'BEGIN{FS="\t";print "GENE\tCOSMIC_consensus"}!/^Symbol/{print $1"\tCGC_"$12}' > Cosmic_cancer_gene_census_v68.tsv
 rm cancer_gene_census.tsv
 
 cd $WDIR
@@ -425,6 +426,31 @@ wget http://www.genome.gov/admin/gwascatalog.txt
 cd $WDIR
 }
 
+# IntoGen Cancer Drivers
+{
+WDIR=$PWD
+mkdir -p INTOGEN/
+cd INTOGEN/
+
+# Manually download from http://www.intogen.org/web/tcga/v04/downloads?2
+
+# List of high-confidence cancer driver genes
+
+# Table with the list of high-confidence cancer driver genes with their evidences of signals of positive selection in each cancer type. The table contains 6 columns (gene Ensembl id, gene symbol, cancer type, mutation frequency of the gene in the project, MuSiC, FMbias, CLUSTbias, ActiveDriver, MutSig)
+to - HC-driver_genes_stats.tsv
+
+# HC-driver_genes.tsv contains for each gene more than one entry according to cancer type. This is difficult to parse into the mutations table. Selecting only gene name and driver-category we will have a single entry by gene.
+(cut -f 2,10 HC-driver_genes_stats.tsv | head -1; cut -f 2,10 HC-driver_genes_stats.tsv | sed 1d | sort -u) > HC-driver_genes.tsv
+
+
+# List of somatic mutations, their frequency and predicted impact detected in TCGA Pan-Cancer
+
+# Table with the list of all somatic mutations detected in TCGA Pan-Cancer. The table contains genomic coordinates of the variant (chromosome, strand, start, allele), affected gene, protein change, impact (1=high, 2=medium, 3=low, 4=none), number of samples with the mutation, number of samples analyzed, mutation frequency.
+to - TCGA.Pan-Cancer.mutations.tsv
+
+cd $WDIR	
+	
+}
 	
 }
 
