@@ -947,4 +947,73 @@ cd $WDIR
 }
 
 
+# 13. DICTIONARIES
+{
+
+WDIR=$PWD
+mkdir -p DICTIONARIES/
+cd DICTIONARIES
+
+# Effect and Impact dictionary with terms from snpEff, Sequence Ontology, VEP and Gemini.
+# File : Variant_EffectAnnotation_Dictionary.tsv
+
+# Sequence ontology
+wget http://sourceforge.net/projects/song/files/Sequence%20Ontology/so_2_5_2/so_2_5_2.obo/download
+# SO: extract terms
+cat so_2_5_2.obo | perl -lane 'if(/^id:/){$id=$F[1]}; if(/^name:/){$name=$F[1]}; if(/^def:/){$def=$_; $def=~s/def:\t//; print $name."\t".$id."\t".$def}' | sort > so.terms
+# SO from snpEff
+{
+printf "SO\tsnpEff_EFFECT\tMutSig_Effect
+exon_lost\tEXON_DELETED\tnonsilent
+frameshift_variant\tFRAME_SHIFT\tnonsilent
+initiator_codon_variant\tSTART_LOST\tnonsilent
+non_conservative_missense_variant\tRARE_AMINO_ACID\tnonsilent
+splice_acceptor_variant\tSPLICE_SITE_ACCEPTOR\tnonsilent
+splice_donor_variant\tSPLICE_SITE_DONOR\tnonsilent
+stop_gained\tSTOP_GAINED\tnonsilent
+stop_lost\tSTOP_LOST\tnonsilent
+coding_sequence_variant\tCODON_CHANGE\tnonsilent
+five_prime_UTR\tUTR_5_DELETED\tnoncoding
+inframe_deletion\tCODON_CHANGE_PLUS_CODON_DELETION\tnonsilent
+inframe_deletion\tCODON_DELETION\tnonsilent
+inframe_insertion\tCODON_CHANGE_PLUS_CODON_INSERTION\tnonsilent
+inframe_insertion\tCODON_INSERTION\tnonsilent
+missense\tNON_SYNONYMOUS_CODING\tnonsilent
+initiator_codon_variant\tNON_SYNONYMOUS_START\tnonsilent
+initiator_codon_variant\tSYNONYMOUS_START\tsilent
+splice_region_variant\tSPLICE_SITE_REGION\tnonsilent
+start_gained\tSTART_GAINED\tnonsilent
+stop_retained_variant\tSYNONYMOUS_STOP\tsilent
+synonymous_variant\tSYNONYMOUS_CODING\tsilent
+3_prime_UTR_variant\tUTR_3_PRIME\tnoncoding
+5_prime_UTR_variant\tUTR_5_PRIME\tnoncoding
+cds\tCDS\tsilent
+chromosome\tCHROMOSOME\tnoncoding
+custom\tCUSTOM\tnoncoding
+downstream_gene_variant\tDOWNSTREAM\tnoncoding
+genome\tGENE\tnoncoding
+intergenic_region\tINTERGENIC\tnoncoding
+intergenic_region\tINTERGENIC_CONSERVED\tnoncoding
+intragenic_variant\tINTRAGENIC\tnoncoding
+intron_variant\tINTRON\tnoncoding
+intron_variant\tINTRON_CONSERVED\tnoncoding
+nc_transcript_variant\tTRANSCRIPT\tnoncoding
+non_coding_exon_variant\tEXON\tnoncoding
+none\tNONE\tnoncoding
+regulatory_region_variant\tREGULATION\tnoncoding
+upstream_gene_variant\tUPSTREAM\tnoncoding
+micro_rna\tMICRO_RNA\tnoncoding
+splice_region_variant\tSPLICE_SITE_BRANCH\tnonsilent
+splice_region_variant\tSPLICE_SITE_BRANCH_U12\tnonsilent
+stop_retained_variant\tNON_SYNONYMOUS_STOP\tnonsilent" > so_snpEff.terms
+
+}
+
+merge.pl -a -empty none -1 1 -2 1 so.terms so_snpEff.terms | sed 's/def://' | sort > so_snpEff_def.terms
+
+
+cd $WDIR
+}
+
+
 
