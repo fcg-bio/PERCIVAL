@@ -512,8 +512,8 @@ rm cse-tracks.tar.gz
 
 for i in $(ls cse-tracks/*bed); do
 BED=$(basename $i)".gz"
-cat $i | awk '{print $0"\tyes"}' > tmp.bed
-cat $i | awk '{print "chr"$0"\tyes"}' >> tmp.bed
+cat $i | awk '{print $0"\t0"}' > tmp.bed
+cat $i | awk '{print "chr"$0"\t0"}' >> tmp.bed
 cat tmp.bed | sort -k1,1 -k2,2n | bgzip -cf > $BED
 tabix -f -s 1 -b 2 -e 3  $BED
 rm tmp.bed
@@ -565,7 +565,7 @@ cd GENOME_TRACKS/
 wget --timestamping 'ftp://hgdownload.cse.ucsc.edu/goldenPath/hg19/database/genomicSuperDups.txt.gz' -O hg19_UCSC_segdup.txt.gz
 zcat hg19_UCSC_segdup.txt.gz | cut -f 2-4,6 | awk '!/^chrom/' | uniq > tmp.bed
 zcat hg19_UCSC_segdup.txt.gz | cut -f 2-4,6 | awk '!/^chrom/' | uniq | sed 's/chr//' >> tmp.bed
-mergeBed -i tmp.bed | awk '{print $0"\tyes"}' | sort -k1,1 -k2,2n | bgzip -cf > hg19_UCSC_segdup.bed.gz
+mergeBed -i tmp.bed | awk '{print $0"\t1"}' | sort -k1,1 -k2,2n | bgzip -cf > hg19_UCSC_segdup.bed.gz
 tabix -f -s 1 -b 2 -e 3 hg19_UCSC_segdup.bed.gz
 rm tmp.bed
 }	
