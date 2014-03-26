@@ -156,20 +156,18 @@ cp /well/tomlinson/fcastro/data/genomes/mm10/mm10.fa.gz.fai genome.fai
 WDIR=$PWD
 mkdir -p DBSNP/
 cd DBSNP/
-
-lftp -e 'set net:timeout 10; cd snp/organisms/human_9606/VCF/; mget 00-All.vcf.gz*; bye' -u anonymous,fcastro@well.ox.ac.uk ftp.ncbi.nih.gov
-rm *tbi
+wget ftp://ftp.ncbi.nih.gov/snp/organisms/human_9606/VCF/00-All.vcf.gz
 
 # Prepare little database for dbSNP
-zcat 00-All.vcf.gz | head -100 | grep "##" | awk '{if(/^##INFO/){if(/=RS,/ || /=dbSNPBuildID,/ || /=COMMON,/ || /=G5A,/){print $0}} else {print $0}}' >  dbSNP_b138.vcf
-echo '##INFO=<ID=GMAF,Number=1,Type=String,Description="GMAF for 1000 genomes">' >> dbSNP_b138.vcf
-zgrep -m 1 "#CHROM" 00-All.vcf.gz >> dbSNP_b138.vcf
+zcat 00-All.vcf.gz | head -100 | grep "##" | awk '{if(/^##INFO/){if(/=RS,/ || /=dbSNPBuildID,/ || /=COMMON,/ || /=G5A,/){print $0}} else {print $0}}' >  dbSNP_All.vcf
+echo '##INFO=<ID=GMAF,Number=1,Type=Float,Description="GMAF for 1000 genomes">' >> dbSNP_All.vcf
+zgrep -m 1 "#CHROM" 00-All.vcf.gz >> dbSNP_All.vcf
 
 zgrep -v "#" 00-All.vcf.gz | perl -lane '
 $F[0] = "chr".$F[0];
 $F[2] = ".";
 $INFO="";
-if ($F[7]=~/RS=(\w*)/) {$INFO=$INFO."RS=rs".$1 }
+if ($F[7]=~/(RS=\w*)/) {$INFO=$INFO.$1 }
 if ($F[7]=~/(dbSNPBuildID=\w*)/) {$INFO=$INFO.";".$1 }
 if ($F[7]=~/(COMMON=\w*)/) {$INFO=$INFO.";".$1 }
 if ($F[7]=~/;G5A/) {$INFO=$INFO.";G5A=yes"}
@@ -184,11 +182,8 @@ $F[7] = $INFO;
 foreach $alt (@ALT) {
 print $F[0]."\t".$F[1]."\t".$F[2]."\t".$F[3]."\t".$alt."\t".$F[5]."\t".$F[6]."\t".$F[7];
 }
-' | sed 's/chrMT/chrM/' >> dbSNP_b138.vcf
+' | sed 's/chrMT/chrM/' >> dbSNP_All.vcf
 
-
-zgrep "#" dbSNP_b138.vcf > dbSNP_b138_noChr.vcf
-zgrep -v "#" dbSNP_b138.vcf | sed 's/^chr//' >> dbSNP_b138_noChr.vcf
 
 cd $WDIR
 }
@@ -285,22 +280,16 @@ cp /well/bsg/data/WGS500-ANALYSIS/freeze5/union_raw_f5.vcf.gz WGS500_union_raw_f
 zgrep "#" WGS500_union_raw_f5.vcf.gz | sed 's/=TC/=TC500/' | sed 's/=HM/=HM500/' | sed 's/=HT/=HT500/' | sed 's/in union file/in WG500 union file/' > tmp
 zgrep -v "#" WGS500_union_raw_f5.vcf.gz | sed 's/TC=/TC500=/' | sed 's/HM=/HM500=/' | sed 's/HT=/HT500=/' >> tmp
 
-# Add only Frequency in WG500
-grep "##" tmp > tmp2
-printf "##INFO=<ID=PC500,Number=1,Type=Integer,Description=\"Proportion of occurrences in WG500 union file\">\n" >> tmp2
-grep -m1 "#CHROM" tmp >> tmp2
-grep -v "#" tmp | perl -lane '$info=$F[7]; $info =~ /TC500=(\d+);/; print $_."PC500=".$1/500' >> tmp2
-
 
 # Keep only Frequency in WG500 (PC500) and the total number of ocurrences (TC500)
 grep -m1 "##fileformat" tmp > tmp2
 grep -m1 "##INFO=<ID=TC500" tmp >> tmp2
-printf "##INFO=<ID=PC500,Number=1,Type=Integer,Description=\"Proportion of occurrences in WG500 union file\">\n" >> tmp2
+printf "##INFO=<ID=PC500,Number=1,Type=Float,Description=\"Proportion of occurrences in WG500 union file\">\n" >> tmp2
 grep -m1 "#CHROM" tmp >> tmp2
 grep -v "#" tmp | perl -lane '$info=$F[7]; $info =~ /(TC500)=(\d+);/; print join("\t",@F[0..6])."\t".$1."=".$2.";PC500=".$2/500' >> tmp2
 
 mv tmp2 WGS500_union_raw_f5.vcf
-rm tmp WGS500_union_raw_f5.vcf.gz
+rm tmp
 
 cd $WDIR
 
@@ -332,29 +321,18 @@ INPUTNONCOD=CosmicNonCodingVariants_v68.vcf.gz
 OUTPUTVCF=CosmicVariants_v68.vcf
 
 zgrep "##" $INPUTCOD | grep -v INFO > tmp
-echo "##INFO=<ID=CNT,Number=1,Type=String,Description=\"Cosmic. How many samples have this mutation\">" >> tmp
+echo "##INFO=<ID=CNT,Number=1,Type=Integer,Description=\"Cosmic. How many samples have this mutation\">" >> tmp
 echo "##INFO=<ID=Cosmic,Number=1,Type=String,Description=\"Cosmic mutation. Values: coding, noncoding\">" >> tmp
 echo "##INFO=<ID=CosmicID,Number=1,Type=String,Description=\"Cosmic mutation ID\">" >> tmp
 zgrep "#CHROM" $INPUTCOD >> tmp
 zgrep -v "#" $INPUTCOD | perl -lane '@INFO=split(";", $F[7]); foreach(@INFO){if(/CNT=/){ $CNT=$_.";"}}; print join("\t", @F[0..6])."\t".$CNT."Cosmic=coding;CosmicID=".$F[2]' >> tmp
-zgrep -v "#" $INPUTNONCOD | perl -lane '@INFO=split(";", $F[7]); foreach(@INFO){if(/CNT=/){ $CNT=$_.";"}}; print join("\t", @F[0..6])."\t".$CNT."Cosmic=coding;CosmicID=".$F[2]' >> tmp
+zgrep -v "#" $INPUTNONCOD | perl -lane '@INFO=split(";", $F[7]); foreach(@INFO){if(/CNT=/){ $CNT=$_.";"}}; print join("\t", @F[0..6])."\t".$CNT."Cosmic=noncoding;CosmicID=".$F[2]' >> tmp
 
 cat tmp | perl /well/tomlinson/fcastro/apps/VCFTOOLS/0.1.10/perl/vcf-sort -c | awk '{if(!/#/){print "chr"$0}else{print}}' | sed 's/chrMT/chrM/'| uniq  > $OUTPUTVCF
 rm tmp
 
 }
 
-# Add chr prefix
-{
-INPUTVCF=CosmicVariants_v68.vcf.gz
-OUTPUTVCF=CosmicVariants_chr_v68.vcf.gz
-
-zgrep "#" $INPUTVCF > tmp
-zgrep -v "#" $INPUTVCF | awk '{print "chr"$0}' >> tmp
-gzip tmp
-mv tmp.gz $OUTPUTVCF
-	
-}
 
 cd $WDIR
 }
@@ -375,7 +353,14 @@ dos2unix -c Mac cancer_gene_census.tsv
 #"GENE\tCOSMIC_consensus"
 #"ABL2\tCGC_dom"
 
-cat cancer_gene_census.tsv | awk 'BEGIN{FS="\t";OFS="\t"}{for(i=1; i<=NF; ++i){if($i=="" ){$i="NA"}}; print $_}' | awk 'BEGIN{FS="\t";print "GENE\tCOSMIC_consensus"}!/^Symbol/{print $1"\tCGC_"$12}' > Cosmic_cancer_gene_census_v68.tsv
+cat cancer_gene_census.tsv | awk 'BEGIN{FS="\t";OFS="\t"}{for(i=1; i<=NF; ++i){if($i=="" ){$i="NA"}}; print $_}' | awk 'BEGIN{FS="\t";print "GENE\tCOSMIC_consensus"}!/^Symbol/{
+	Mut="NA";
+	if($6 ~ "yes" && $7 ~ "yes"){Mut="somgl"};
+	if($6 ~ "yes" && $7 ~"NA"){Mut="som"};
+	if($6 ~ "NA" && $7 ~ "yes"){Mut="gl"};
+	print $1"\tCGC_"$12"_"Mut
+}' > Cosmic_cancer_gene_census_v68.tsv
+
 rm cancer_gene_census.tsv
 
 cd $WDIR
@@ -512,8 +497,8 @@ rm cse-tracks.tar.gz
 
 for i in $(ls cse-tracks/*bed); do
 BED=$(basename $i)".gz"
-cat $i | awk '{print $0"\t0"}' > tmp.bed
-cat $i | awk '{print "chr"$0"\t0"}' >> tmp.bed
+cat $i | awk '{print $0"\t1"}' > tmp.bed
+cat $i | awk '{print "chr"$0"\t1"}' >> tmp.bed
 cat tmp.bed | sort -k1,1 -k2,2n | bgzip -cf > $BED
 tabix -f -s 1 -b 2 -e 3  $BED
 rm tmp.bed
