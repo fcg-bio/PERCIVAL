@@ -58,7 +58,6 @@ sub map
 
 	my $result = GetOptions ("c|conf:s"  => \$opts{CONF},
 							"s|submit:s"   => \$opts{SUBMIT},
-							"b:s"   => \$opts{BASHSUBMIT},
 							"sm|sample:s"   => \$opts{SAMPLE},
 							"fastq1:s"   => \$opts{FASTQ1},
 							"fastq2:s"   => \$opts{FASTQ2});	
@@ -68,11 +67,10 @@ sub map
 	Usage:  percival map [options]
 	Options:
 		-c, --conf	REQ <FILE>	Configuration file. [\$opts{CONF}]
-		-sm, --sample	REQ <STR> Sample name for read annotation during the mapping.[\$opts{SAMPLE}]
+		-sm, --sample	REQ <BOOLEAN> Sample name for read annotation during the mapping.[\$opts{SAMPLE}]
 		-fastq1		REQ <STR> 	Fastq file for end 1.[\$opts{FASTQ1}]
 		-fastq2		REQ <STR> 	Fastq file for end 2.[\$opts{FASTQ2}]
 		-s, --submit	OPT <BOOLEAN> 	Submit pipeline to Cluster3.[\$opts{SUBMIT}]
-		-b	OPT <BOOLEAN> 	Create bash script to schedule the submit of each individual bash script.[\$opts{BASHSUBMIT}]
 	##\n\n/ ;             
 	
 	die ($usage) if ( !defined $opts{CONF} || !defined $opts{FASTQ1} || !defined $opts{SAMPLE} );
@@ -83,26 +81,7 @@ sub map
 	# COMPLETE PATH TO THE FILES
 	$$opts{FASTQ1} = File::Spec->rel2abs($$opts{FASTQ1});
 	$$opts{FASTQ2} = File::Spec->rel2abs($$opts{FASTQ2});
-
-	# BASH EXECUTABLE TO SUBMIT
-	if ( defined $$opts{BASHSUBMIT} )
-	{
-		$$opts{BASHFILESUBMIT} = $$opts{SAMPLE}.".percival.map.sh";
-
-		# Initialise file
-		open(BASHFILE, ">", $$opts{BASHFILESUBMIT}) or die "cannot open > $$opts{BASHFILESUBMIT}: $!";
-		my $datestring = localtime();
-		print BASHFILE "#!/bin/bash\n";
-		print BASHFILE "# Date : $datestring\n";
-		print BASHFILE "# Percival mapping pipeline for sample : $$opts{SAMPLE}\n\n";
-		print BASHFILE "# Starting the job\n";
-		print BASHFILE "date >&2\n";
-		print BASHFILE "printf START >&2; uptime >&2\n\n";
-
-		close(BASHFILE)
-		
-	}
-		
+	
 	# PIPELINE CONFIGURATION
 	my $conf = _configure_pipeline($opts, "map");
 
@@ -115,14 +94,6 @@ sub map
 	#
 	
 	my $fastq_dep="";
-	
-	if ( defined $$opts{BASHSUBMIT} )
-	{
-		open(BASHFILE, ">>", $$opts{BASHFILESUBMIT}) or die "cannot open > $$opts{BASHFILESUBMIT}: $!";
-		print BASHFILE "# FASTQ-PROCESSING and MAPPING \n";
-		print BASHFILE "# Split factor :  $$conf{SplitFactor}\n\n";
-		close(BASHFILE)
-	}
 	if ($$conf{SplitFactor} > 1)
 	{
 		for (my $s=1; $s <= $$conf{SplitFactor}; $s++)
@@ -142,28 +113,6 @@ sub map
 				my $stampy_se_pid = _qsubmit($stampy_se_cmd, $fastqTrimm_pid);
 				$fastq_dep .= $stampy_pe_pid.",".$stampy_se_pid;
 			}
-			
-			if ( defined $$opts{BASHSUBMIT} )
-			{
-				my $fastqSlice_err = $fastqSlice_cmd;
-				my $fastqTrimm_err = $fastqTrimm_cmd;
-				my $stampy_pe_err = $stampy_pe_cmd;
-				my $stampy_se_err = $stampy_se_cmd;
-				$fastqSlice_err =~ s/.sh/.err/;
-				$fastqTrimm_err =~ s/.sh/.err/;
-				$stampy_pe_err =~ s/.sh/.err/;
-				$stampy_se_err =~ s/.sh/.err/;
-				
-				open(BASHFILE, ">>", $$opts{BASHFILESUBMIT}) or die "cannot open > $$opts{BASHFILESUBMIT}: $!";
-				print BASHFILE "# Fastq slice :  $s\n";
-				print BASHFILE "bash $fastqSlice_cmd 2> $fastqSlice_err\n";
-				print BASHFILE "bash $fastqTrimm_cmd 2> $fastqTrimm_err\n";
-				print BASHFILE "bash $stampy_pe_cmd 2> $stampy_pe_err\n";
-				print BASHFILE "bash $stampy_se_cmd 2> $stampy_se_err\n\n";
-				close(BASHFILE)
-			}
-		
-		
 
 		}
 	} else {
@@ -188,24 +137,8 @@ sub map
 			$fastq_dep .= $stampy_pe_pid.",".$stampy_se_pid;
 		}
 		
-		if ( defined $$opts{BASHSUBMIT} )
-		{
-
-			my $fastqTrimm_err = $fastqTrimm_cmd;
-			my $stampy_pe_err = $stampy_pe_cmd;
-			my $stampy_se_err = $stampy_se_cmd;
-			$fastqTrimm_err =~ s/.sh/.err/;
-			$stampy_pe_err =~ s/.sh/.err/;
-			$stampy_se_err =~ s/.sh/.err/;
-				
-			open(BASHFILE, ">>", $$opts{BASHFILESUBMIT}) or die "cannot open > $$opts{BASHFILESUBMIT}: $!";
-			print BASHFILE "bash $fastqTrimm_cmd 2> $fastqTrimm_err\n";
-			print BASHFILE "bash $stampy_pe_cmd 2> $stampy_pe_err\n";
-			print BASHFILE "bash $stampy_se_cmd 2> $stampy_se_err\n\n";
-			close(BASHFILE)
-		}
 	}
-	
+
 	#
 	# RUNNING BAM PROCESSING
 	#
@@ -224,31 +157,8 @@ sub map
 			$ir_dep .= ",".$pid;
 		}
 	}
-	
+				
 
-	if ( defined $$opts{BASHSUBMIT} )
-	{
-		open(BASHFILE, ">>", $$opts{BASHFILESUBMIT}) or die "cannot open > $$opts{BASHFILESUBMIT}: $!";
-		print BASHFILE "# BAM PROCESSING\n";
-		print BASHFILE "# Split factor :  $$conf{SplitFactor}\n\n";
-		my $rmDup_err = $rmDup_cmd;
-		$rmDup_err =~ s/.sh/.err/;
-		print BASHFILE "bash $rmDup_cmd 2> $rmDup_err\n";
-		
-		foreach my $icmd (@{$indelRealignment_cmd}) 
-		{
-			my $ierr = $icmd;
-			$ierr =~ s/.sh/.err/;
-			print BASHFILE "bash $icmd 2> $ierr &\n" if($$conf{SplitGenomeFactor} > 1);
-			print BASHFILE "bash $icmd 2> $ierr\n\n" if($$conf{SplitGenomeFactor} == 1);
-		}
-		print BASHFILE "wait\n\n" if($$conf{SplitGenomeFactor} > 1);
-		
-		print BASHFILE "# End of the job\n";
-		print BASHFILE "printf END >&2; uptime >&2\n";
-		close(BASHFILE)
-	}
-	
 
 	
 	# CHANGE WORKING DIRECTORY  
@@ -264,7 +174,6 @@ sub varcall
 	my $result = GetOptions ("c|conf:s"  => \$opts{CONF},
 							"v:s"   => \$opts{VARCALL},
 							"s|submit:s"   => \$opts{SUBMIT},
-							"b:s"   => \$opts{BASHSUBMIT},
 							"bam:s"   => \$opts{BAM},
 							"n:s"   => \$opts{NSAMPLE},
 							"p|prefix:s"   => \$opts{PREFIX},
@@ -285,7 +194,6 @@ sub varcall
 		-d, --dir		OPT <STR> Directory for output file. Default ".".[\$opts{DIR}]
 		-a,--annotate		OPT <BOOLEAN> Annotate VCF with SnpSift, SnpEff and VCFtools.[\$opts{ANNOTATE}]
 		-s, --submit	OPT <BOOLEAN> 	Submit pipeline to Cluster3.[\$opts{SUBMIT}]
-		-b	OPT <BOOLEAN> 	Create a regular bash script instead of Cluster3 format.[\$opts{BASHSUBMIT}]
 	##\n\n/ ;             
 	
 	die ($usage) if ( !defined $opts{CONF} || !defined $opts{BAM} || !defined $opts{NSAMPLE} || !defined $opts{PREFIX} || !defined $opts{VARCALL});
@@ -604,23 +512,14 @@ sub _platypus
 	# Print Command
 	my $cmdout;
 	my $cmdfile = $$self{PREFIX}.$rq."_platypus".".sh";
-	
-	if (!defined $$self{BASHFILESUBMIT})
-	{
-		$cmdout =  CMDFile->new();
-		$cmdout->jobName($$self{PREFIX}.$rq."_platypus");
-		$cmdout->initialdir($$self{dir});
-		$cmdout->queue("long.qa") if(! defined $$self{BYCHR});
-		$cmdout->queue("short.qa") if(defined $$self{BYCHR});
-		$cmdout->output($$self{dir}."/".$$self{PREFIX}.$rq."_platypus".'_$JOB_ID.out');
-		$cmdout->error($$self{dir}."/".$$self{PREFIX}.$rq."_platypus".'_$JOB_ID.err');
-		$cmdout->cpuTask($nCPU);
-	} else {
-		$cmdout =  BASHFile->new();
-		$cmdout->initialdir($$self{dir});	
-	}
-	
-
+	$cmdout =  CMDFile->new();
+	$cmdout->jobName($$self{PREFIX}.$rq."_platypus");
+	$cmdout->initialdir($$self{dir});
+	$cmdout->queue("long.qa") if(! defined $$self{BYCHR});
+	$cmdout->queue("short.qa") if(defined $$self{BYCHR});
+	$cmdout->output($$self{dir}."/".$$self{PREFIX}.$rq."_platypus".'_$JOB_ID.out');
+	$cmdout->error($$self{dir}."/".$$self{PREFIX}.$rq."_platypus".'_$JOB_ID.err');
+	$cmdout->cpuTask($nCPU);
 		
 	my $command = "\n\necho \"Platypus Variant Calling region : $region \" >&2\n";
 	$command .= "python $$self{Platypus} callVariants --refFile=$$self{GENOMEUNZIP} --bamFiles=$bam -n $$self{NSAMPLE} --logFileName=$log --skipRegionsFile=$skip --output=$vcf --regions=$region $$self{PlatypusArgv}\n" if ($region ne "all");
@@ -661,20 +560,13 @@ sub _samtools
 	# Print Command
 	my $cmdout;
 	my $cmdfile = $$self{PREFIX}.$rq."_samtools".".sh";
-	if (!defined $$self{BASHFILESUBMIT})
-	{
-		$cmdout =  CMDFile->new();
-		$cmdout->jobName($$self{PREFIX}.$rq."_samtools");
-		$cmdout->initialdir($$self{dir});
-		$cmdout->queue("long.qa");
-		$cmdout->output($$self{dir}."/".$$self{PREFIX}.$rq."_samtools".'_$JOB_ID.out');
-		$cmdout->error($$self{dir}."/".$$self{PREFIX}.$rq."_samtools".'_$JOB_ID.err');
-		$cmdout->cpuTask($nCPU);
-	} else {
-		$cmdout =  BASHFile->new();
-		$cmdout->initialdir($$self{dir});	
-	}
-
+	$cmdout =  CMDFile->new();
+	$cmdout->jobName($$self{PREFIX}.$rq."_samtools");
+	$cmdout->initialdir($$self{dir});
+	$cmdout->queue("long.qa");
+	$cmdout->output($$self{dir}."/".$$self{PREFIX}.$rq."_samtools".'_$JOB_ID.out');
+	$cmdout->error($$self{dir}."/".$$self{PREFIX}.$rq."_samtools".'_$JOB_ID.err');
+	$cmdout->cpuTask($nCPU);
 
 	my $command = "\n\necho \"Samtools Variant Calling region : $region \" >&2\n";
 	
@@ -788,19 +680,13 @@ sub _fastq_slice
 	# Print Command
 	my $cmdout;
 	my $cmdfile = $$self{PREFIX}."_".$i.'_fastqSlice.sh';
-	if (!defined $$self{BASHFILESUBMIT})
-	{
-		$cmdout =  CMDFile->new();
-		$cmdout->jobName($$self{PREFIX}."_".$i.'_fastqSlice');
-		$cmdout->initialdir($$self{dir});
-		$cmdout->queue("short.qa");
-		$cmdout->output($$self{dir}."/".$$self{PREFIX}."_".$i.'_fastqSlice_$JOB_ID.out');
-		$cmdout->error($$self{dir}."/".$$self{PREFIX}."_".$i.'_fastqSlice_$JOB_ID.err');
-		$cmdout->cpuTask('2');
-	} else {
-		$cmdout =  BASHFile->new();
-		$cmdout->initialdir($$self{dir});	
-	}
+	$cmdout =  CMDFile->new();
+	$cmdout->jobName($$self{PREFIX}."_".$i.'_fastqSlice');
+	$cmdout->initialdir($$self{dir});
+	$cmdout->queue("short.qa");
+	$cmdout->output($$self{dir}."/".$$self{PREFIX}."_".$i.'_fastqSlice_$JOB_ID.out');
+	$cmdout->error($$self{dir}."/".$$self{PREFIX}."_".$i.'_fastqSlice_$JOB_ID.err');
+	$cmdout->cpuTask('2');
 
 	my $command = "\n\necho \"Split FASTQ : $i / $$self{SplitFactor} \" >&2";
 	my ($fastq1tmp,$fastq2tmp) = ($$self{FASTQ1},$$self{FASTQ2});
@@ -837,21 +723,14 @@ sub _fastq_qc_PRINSEQ
 	# Print Command
 	my $cmdout;
 	my $cmdfile = $$self{PREFIX}."_".$i.'_fastqQC.sh';
+	$cmdout =  CMDFile->new();
+	$cmdout->jobName($$self{PREFIX}."_".$i.'_fastqQC');
+	$cmdout->initialdir($$self{dir});
+	$cmdout->queue("long.qa");
+	$cmdout->output($$self{dir}."/".$$self{PREFIX}."_".$i.'_fastqQC_$JOB_ID.out');
+	$cmdout->error($$self{dir}."/".$$self{PREFIX}."_".$i.'_fastqQC_$JOB_ID.err');
+	$cmdout->cpuTask('1');
 
-	if (!defined $$self{BASHFILESUBMIT})
-	{
-		$cmdout =  CMDFile->new();
-		$cmdout->jobName($$self{PREFIX}."_".$i.'_fastqQC');
-		$cmdout->initialdir($$self{dir});
-		$cmdout->queue("long.qa");
-		$cmdout->output($$self{dir}."/".$$self{PREFIX}."_".$i.'_fastqQC_$JOB_ID.out');
-		$cmdout->error($$self{dir}."/".$$self{PREFIX}."_".$i.'_fastqQC_$JOB_ID.err');
-		$cmdout->cpuTask('1');
-	} else {
-		$cmdout =  BASHFile->new();
-		$cmdout->initialdir($$self{dir});	
-	}
-	
 	my $command = "\n\necho \"Quality control FASTQ : $i / $$self{SplitFactor} \" >&2";
 	$command .= "\nperl $$self{Prinseq} gunzip -fastq $fastq1i -fastq2 $fastq2i -out_good $fastqGood -out_bad $fastqBad $$self{PrinseqArgv}";
 
@@ -881,26 +760,19 @@ sub _stampy
 	# Print Command
 	my $cmdout;
 	my $cmdfile = $$self{PREFIX}."_".$i."_BamStampy_".$end.".sh";
-	
-	if (!defined $$self{BASHFILESUBMIT})
-	{
-		$cmdout =  CMDFile->new();
-		$cmdout->jobName($$self{PREFIX}."_".$i."_BamStampy_".$end);
-		$cmdout->initialdir($$self{dir});
-		$cmdout->queue("short.qa");
-		$cmdout->output($$self{dir}."/".$$self{PREFIX}."_".$i."_BamStampy_".$end.'_$JOB_ID.out');
-		$cmdout->error($$self{dir}."/".$$self{PREFIX}."_".$i."_BamStampy_".$end.'_$JOB_ID.err');
-	} else {
-		$cmdout =  BASHFile->new();
-		$cmdout->initialdir($$self{dir});	
-	}
+	$cmdout =  CMDFile->new();
+	$cmdout->jobName($$self{PREFIX}."_".$i."_BamStampy_".$end);
+	$cmdout->initialdir($$self{dir});
+	$cmdout->queue("short.qa");
+	$cmdout->output($$self{dir}."/".$$self{PREFIX}."_".$i."_BamStampy_".$end.'_$JOB_ID.out');
+	$cmdout->error($$self{dir}."/".$$self{PREFIX}."_".$i."_BamStampy_".$end.'_$JOB_ID.err');
 	
 	my $command = "\n\necho \"Stampy FASTQ $end : $i / $$self{SplitFactor} \" >&2\n";	
 	if ($end eq 'pe')
 	{
 		$fastq1i =~ s/_1.fastq.gz/_${i}_trimm_1.fastq.gz/;
 		$fastq2i =~ s/_2.fastq.gz/_${i}_trimm_2.fastq.gz/;
-		$cmdout->cpuTask('2') if (!defined $$self{BASHFILESUBMIT});
+		$cmdout->cpuTask('2');
 		$command .= "$$self{STAMPY} -t 1 --bwa=$$self{BWA} --bwaoptions=\"$$self{GENOME}\" -g $$self{GENOME} -h $$self{GENOME} --readgroup=ID:$$self{PREFIX}_${end},SM:$$self{SAMPLE},PL:ILLUMINA --keepreforder -M $fastq1i $fastq2i | ";
 		$command .= "$$self{SAMTOOLS} view -Sb - > ${bam_prefix}_unsort.bam\n\n";
 		$command .= "$$self{SAMTOOLS} sort -om 2500000000 ${bam_prefix}_unsort.bam $bam_prefix > $bam\n\n";
@@ -910,7 +782,7 @@ sub _stampy
 	} elsif ($end eq 'se') {
 		$fastq1i =~ s/_1.fastq.gz/_${i}_trimm_1_singletons.fastq.gz/;
 		$fastq2i =~ s/_2.fastq.gz/_${i}_trimm_2_singletons.fastq.gz/;
-		$cmdout->cpuTask('2') if (!defined $$self{BASHFILESUBMIT});
+		$cmdout->cpuTask('2');
 		$command .= "$$self{STAMPY} -t 1 --bwa=$$self{BWA} --bwaoptions=\"$$self{GENOME}\" -g $$self{GENOME} -h $$self{GENOME} --readgroup=ID:$$self{PREFIX}_${end},SM:$$self{SAMPLE},PL:ILLUMINA --keepreforder -M $fastq1i | ";
 		$command .= "$$self{SAMTOOLS} view -Sb - > ${bam_prefix1}_unsort.bam\n\n";
 		$command .= "$$self{SAMTOOLS} sort -om 2500000000 ${bam_prefix1}_unsort.bam $bam_prefix1 > $bam1\n\n";
@@ -1012,20 +884,13 @@ sub _rmDup
 	# Print Command
 	my $cmdout;
 	my $cmdfile = $$self{PREFIX}."_rmdup.sh";
-
-	if (!defined $$self{BASHFILESUBMIT})
-	{
-		$cmdout =  CMDFile->new();
-		$cmdout->jobName($$self{PREFIX}."_rmdup");
-		$cmdout->initialdir($$self{dir});
-		$cmdout->queue("short.qa");
-		$cmdout->output($$self{dir}."/".$$self{PREFIX}."_rmdup".'_$JOB_ID.out');
-		$cmdout->error($$self{dir}."/".$$self{PREFIX}."_rmdup".'_$JOB_ID.err');
-		$cmdout->cpuTask('3');
-	} else {
-		$cmdout =  BASHFile->new();
-		$cmdout->initialdir($$self{dir});	
-	}
+	$cmdout =  CMDFile->new();
+	$cmdout->jobName($$self{PREFIX}."_rmdup");
+	$cmdout->initialdir($$self{dir});
+	$cmdout->queue("short.qa");
+	$cmdout->output($$self{dir}."/".$$self{PREFIX}."_rmdup".'_$JOB_ID.out');
+	$cmdout->error($$self{dir}."/".$$self{PREFIX}."_rmdup".'_$JOB_ID.err');
+	$cmdout->cpuTask('3');
 	
 	my $command = "\n\necho \"Picard Removing Duplicates \" >&2\n\n";	
 
@@ -1081,21 +946,13 @@ sub _indelRealignment
 	# Print Command
 	my $cmdout;
 	my $cmdfile = $$self{PREFIX}."_".$i.'_realignment.sh';
-	if (!defined $$self{BASHFILESUBMIT})
-	{
-		$cmdout =  CMDFile->new();
-		$cmdout->jobName($$self{PREFIX}."_".$i.'_realignment');
-		$cmdout->initialdir($$self{dir});
-		$cmdout->queue("long.qa");
-		$cmdout->output($$self{dir}."/".$$self{PREFIX}."_".$i.'_realignment_$JOB_ID.out');
-		$cmdout->error($$self{dir}."/".$$self{PREFIX}."_".$i.'_realignment_$JOB_ID.err');
-		$cmdout->cpuTask('2');
-	} else {
-		$cmdout =  BASHFile->new();
-		$cmdout->initialdir($$self{dir});	
-	}
-	
-	
+	$cmdout =  CMDFile->new();
+	$cmdout->jobName($$self{PREFIX}."_".$i.'_realignment');
+	$cmdout->initialdir($$self{dir});
+	$cmdout->queue("long.qa");
+	$cmdout->output($$self{dir}."/".$$self{PREFIX}."_".$i.'_realignment_$JOB_ID.out');
+	$cmdout->error($$self{dir}."/".$$self{PREFIX}."_".$i.'_realignment_$JOB_ID.err');
+	$cmdout->cpuTask('2');
 
 	my $command = "";
 
@@ -1143,21 +1000,14 @@ sub _baseRecalibrator
 	# Print Command
 	my $cmdout;
 	my $cmdfile = $$self{PREFIX}.'_recalibration.sh';
+	$cmdout =  CMDFile->new();
+	$cmdout->jobName($$self{PREFIX}.'_recalibration');
+	$cmdout->initialdir($$self{dir});
+	$cmdout->queue("long.qa");
+	$cmdout->output($$self{dir}."/".$$self{PREFIX}.'_recalibration_$JOB_ID.out');
+	$cmdout->error($$self{dir}."/".$$self{PREFIX}.'_recalibration_$JOB_ID.err');
+	$cmdout->cpuTask('1');
 
-	if (!defined $$self{BASHFILESUBMIT})
-	{
-		$cmdout =  CMDFile->new();
-		$cmdout->jobName($$self{PREFIX}.'_recalibration');
-		$cmdout->initialdir($$self{dir});
-		$cmdout->queue("long.qa");
-		$cmdout->output($$self{dir}."/".$$self{PREFIX}.'_recalibration_$JOB_ID.out');
-		$cmdout->error($$self{dir}."/".$$self{PREFIX}.'_recalibration_$JOB_ID.err');
-		$cmdout->cpuTask('1');
-	} else {
-		$cmdout =  BASHFile->new();
-		$cmdout->initialdir($$self{dir});	
-	}
-	
 	#	Base Recalibrator
 	my $command = "\n\necho \"Base Quality Recalibrator \" >&2";	
 	$command .= "\ntime java -Xmx4g -Djava.io.tmpdir=$$self{TmpFolder} -jar $$self{GATK} \\";
@@ -1318,59 +1168,6 @@ sub submit {
 
 
 
-
-package BASHFile;
-
-use strict;
-use warnings;
-use Carp;
-
-#constructor
-sub new {
-    my ($class) = @_;
-    my $self = {
-        _initialdir => ".",
-        _file => undef,
-    };
-    bless $self, $class;
-    return $self;
-}
-
-sub initialdir {
-    my ( $self, $initialdir ) = @_;
-    $self->{_initialdir} = $initialdir if defined($initialdir);
-    return $self->{_initialdir};
-}
-
-sub command {
-    my ( $self, $command ) = @_;
-    $self->{_command} = $command if defined($command);
-    return $self->{_command};
-}
-
-sub print {
-    my ($self,$file) = @_;
-    
-	if ( ! defined $file ) { carp "Unknown type"; return undef;}
-
-	open (BASHFILE,">",$file) or die "cannot open > $file: $!";
-
-	print BASHFILE "#!/bin/bash\n";
-	print BASHFILE "date >&2\n";
-	print BASHFILE "printf START >&2; uptime >&2\n";
-	print BASHFILE "time (\n";
-	print BASHFILE $self->command;
-	print BASHFILE "\n";
-	print BASHFILE "printf END >&2; uptime >&2\n";
-	print BASHFILE ")\n";
-
-    $self->{_file} = $file if defined($file);
-    return $self->{_file};
-
-}
-
-
-1;
 
 
 
