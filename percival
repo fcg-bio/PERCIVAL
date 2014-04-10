@@ -177,8 +177,8 @@ sub map
 		my $fastqTrimm_cmd = _fastq_qc_PRINSEQ($conf, $s);
 		my $stampy_pe_cmd = _stampy($conf, $s, "pe");
 		my $stampy_se_cmd = _stampy($conf, $s, "se");
-		my $gem_pe_cmd = _gem($conf, $s, "pe");
-		my $gem_se_cmd = _gem($conf, $s, "se");
+		#my $gem_pe_cmd = _gem($conf, $s, "pe");
+		#my $gem_se_cmd = _gem($conf, $s, "se");
 
 		if ( defined $$conf{SUBMIT} )
 		{
