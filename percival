@@ -1180,7 +1180,7 @@ sub _baseRecalibrator
 	$command .= "\n\t -I ".join(" \\\n\t -I ", @ibam). " \\";
 	$command .= "\n\t -R $$self{GENOMEUNZIP} \\";
 	$command .= "\n\t -BQSR $$self{PREFIX}_recalibration.grp \\";
-	$command .= "\n\t -o $obam \\";
+	$command .= "\n\t -o $obam";
 	
 	$cmdout->command($command);
 	$cmdout->print($cmdfile);
