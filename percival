@@ -1104,7 +1104,7 @@ sub _indelRealignment
 	$command .= "\ntime java -Xmx4g -Djava.io.tmpdir=$$self{TmpFolder} -jar $$self{GATK} \\";
 	$command .= "\n\t -T RealignerTargetCreator \\";
 	$command .= "\n\t -I $ibam \\";
-	$command .= "\n\t -R $$self{GENOME} \\";
+	$command .= "\n\t -R $$self{GENOMEUNZIP} \\";
 	if( exists $$self{knownIndels} )
 	{
 		my @knownIndels = split(",", $$self{knownIndels});
@@ -1121,7 +1121,7 @@ sub _indelRealignment
 	$command .= "\ntime java -Xmx4g -Djava.io.tmpdir=$$self{TmpFolder} -jar $$self{GATK} \\";
 	$command .= "\n\t -T IndelRealigner \\";
 	$command .= "\n\t -I $ibam \\";
-	$command .= "\n\t -R $$self{GENOME} \\";
+	$command .= "\n\t -R $$self{GENOMEUNZIP} \\";
 	$command .= "\n\t -targetIntervals CompleteIndelRealigner.$i.intervals \\";
 	$command .= "\n\t -L $i.split.intervals";
 	$command .= "\n\t -o $obam";
@@ -1176,7 +1176,7 @@ sub _baseRecalibrator
 	$command .= "\ntime java -Xmx4g -Djava.io.tmpdir=$$self{TmpFolder} -jar $$self{GATK} \\";
 	$command .= "\n\t -T PrintReads \\";
 	$command .= "\n\t -I ".join(" \\\n\t -I ", @ibam). " \\";
-	$command .= "\n\t -R $$self{GENOME} \\";
+	$command .= "\n\t -R $$self{GENOMEUNZIP} \\";
 	$command .= "\n\t -BQSR $$self{PREFIX}_recalibration.grp \\";
 	$command .= "\n\t -o $obam \\";
 	
