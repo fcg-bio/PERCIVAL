@@ -1074,7 +1074,9 @@ sub _indelRealignment
 	my ($self, $i) = @_;
 	my $ibam  = $$self{BAM};
 
-	my $obam  = $$self{PREFIX}."_realigned_".$i.".bam";
+	my $obam  = $$self{PREFIX}."_realigned.bam";
+	$obam  = $$self{PREFIX}."_realigned_".$i.".bam" if($$self{SplitGenomeFactor} > 1);
+	
 	@{$$self{BAMIR}} = () if (!defined $$self{BAMIR});
 	push (@{$$self{BAMIR}}, $obam);
 
