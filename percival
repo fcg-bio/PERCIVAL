@@ -1125,7 +1125,7 @@ sub _indelRealignment
 	$command .= "\n\t -I $ibam \\";
 	$command .= "\n\t -R $$self{GENOMEUNZIP} \\";
 	$command .= "\n\t -targetIntervals CompleteIndelRealigner.$i.intervals \\";
-	$command .= "\n\t -L $i.split.intervals";
+	$command .= "\n\t -L $i.split.intervals \\";
 	$command .= "\n\t -o $obam";
 	$command .= "\n\t if [ \$? != 0 ]; then echo \"JOB CANCEL : Error in java application\" >&2; exit 1; fi";	
 	
