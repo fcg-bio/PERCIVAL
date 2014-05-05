@@ -84,10 +84,21 @@ bgzip -f CADD_whole_genome_SNVs.tsv
 
 # Create tabix index
 tabix -f -s 1 -b 2 -e 2 CADD_whole_genome_SNVs.tsv.gz
-	
+
 rm whole_genome_SNVs.tsv.gz*
 
 mv CADD_whole_genome_SNVs* CADD/.
+
+
+# Pre-filtering of database PHRED-like score >= 15
+# The last column of the provided files is the PHRED-like (-10*log10(rank/total)) scaled C-score ranking a variant relative to all possible substitutions of the human genome (8.6x10^9). Like explained above, a scaled C-score of greater of equal 10 indicates that these are predicted to be the 10% most deleterious substitutions that you can do to the human genome, a score of greater or equal 20 indicates the 1% most deleterious and so on. 
+#If you would like to apply a cutoff on deleteriousness, e.g. to identify potentially pathogenic variants, we would suggest to put a cutoff somewhere between 10 and 20. Maybe at 15, as this also happens to be the median value for all possible canonical splice site changes and non-synonymous variants. However, there is not a natural choice here -- it is always arbitrary. We therefore recommend integrating C-scores with other evidence and to rank your candidates for follow up rather than hard filtering.
+
+(zcat CADD_whole_genome_SNVs.tsv.gz | head -1 
+zcat CADD_whole_genome_SNVs.tsv.gz | sed 1d | awk '$6 >= 15'  ) | bgzip > CADD_del_SNVs.tsv.gz
+tabix -f -s 1 -b 2 -e 2 CADD_del_SNVs.tsv.gz
+
+
 }
 
 # PhastCons
@@ -229,7 +240,7 @@ cd $WDIR
 
 }
 
-# 1000G ==> dbNSFP
+# 1000G
 {
 	
 WDIR=$PWD
@@ -241,30 +252,65 @@ cd 1000G/
 
 wget --timestamping 'ftp://ftp.ncbi.nlm.nih.gov/1000genomes/ftp/phase1/analysis_results/integrated_call_sets/ALL.wgs.integrated_phase1_v3.20101123.snps_indels_sv.sites.vcf.gz' -O ALL.wgs.integrated_phase1_v3.20101123.snps_indels_sv.sites.2012Oct12.vcf.gz
 
+
+# Transform VCF file excluding dbSNP variant
+VCF=ALL.wgs.integrated_phase1_v3.20101123.snps_indels_sv.sites.2012Oct12.vcf.gz
+OUT=1000G.wgs.vcf
+
+
+zcat "#" $VCF | head -500 | grep "#" | \
+sed 's/ID=AF,/ID=1000Gp1_AF,/' | \
+sed 's/ID=AMR_AF,/ID=1000Gp1_AMR_AF,/' | \
+sed 's/ID=ASN_AF,/ID=1000Gp1_ASN_AF,/' | \
+sed 's/ID=AFR_AF,/ID=1000Gp1_AFR_AF,/' | \
+sed 's/ID=EUR_AF,/ID=1000Gp1_EUR_AF,/' > $OUT
+
+zgrep -v "#" $VCF | \
+sed 's/;AF=/;1000Gp1_AF=/' | \
+sed 's/AMR_AF=/1000Gp1_AMR_AF=/' | \
+sed 's/ASN_AF=/1000Gp1_ASN_AF=/' | \
+sed 's/AFR_AF=/1000Gp1_AFR_AF=/' | \
+sed 's/EUR_AF=/1000Gp1_EUR_AF=/' >> $OUT
+
 cd $WDIR
 }
 
-# Exome Sequencing Project 6500 ==> dbNSFP
+# Exome Sequencing Project 6500
 {
 
 WDIR=$PWD
 mkdir -p ESP6500/
 cd ESP6500/
 wget http://evs.gs.washington.edu/evs_bulk_data/ESP6500SI-V2-SSA137.protein-hgvs-update.snps_indels.vcf.tar.gz
-
 tar -xvf ESP6500SI-V2-SSA137.protein-hgvs-update.snps_indels.vcf.tar.gz 
 
-grep "#" ESP6500SI-V2-SSA137.updatedProteinHgvs.chr1.snps_indels.vcf | sed 's/EA_AC/1000G_EA_AC/' | sed 's/AA_AC/1000G_AA_AC/' > ESP6500SI.all.snps_indels.vcf
+OUT=ESP6500SI.all.snps_indels.vcf
+
+echo "##fileformat=VCFv4.0" > $OUT
+echo "##INFO=<ID=ESP6500_EA_AF,Number=.,Type=String,Description=\"Minor Allele Frequency in percent in ESP6500 EA\">" >> $OUT
+echo "##INFO=<ID=ESP6500_AA_AF,Number=.,Type=String,Description=\"Minor Allele Frequency in percent in ESP6500 AA\">" >> $OUT
+echo "##INFO=<ID=ESP6500_All_AF,Number=.,Type=String,Description=\"Minor Allele Frequency in percent in ESP6500 All\">" >> $OUT
+grep -m 1 "#CHROM" ESP6500SI-V2-SSA137.updatedProteinHgvs.chr1.snps_indels.vcf >> $OUT
 for chr in {1..22} X Y; do
-echo $chr
-grep -v "#" ESP6500SI-V2-SSA137.updatedProteinHgvs.chr$chr.snps_indels.vcf | sed 's/EA_AC/1000G_EA_AC/' | sed 's/AA_AC/1000G_AA_AC/' >> ESP6500SI.all.snps_indels.vcf
-done
+grep -v "#" ESP6500SI-V2-SSA137.updatedProteinHgvs.chr$chr.snps_indels.vcf | perl -lane '
+$F[2]="";
+$F[7]=~/MAF=([\w\.]+)\,([\w\.]+)\,([\w\.]+);.*/;##INFO=<ID=MAF,Number=.,Type=String,Description="Minor Allele Frequency in percent in the order of EA,AA,All">;
+$EA=$1/100; 
+$EA=0 if($EA<0.0001);
+$AA=$2/100; 
+$AA=0 if($AA<0.0001);
+$All=$3/100; 
+$All=0 if($All<0.0001);
+$F[7]="ESP6500_EA_AF=".$EA.";ESP6500_AA_AF=".$AA.";ESP6500_All_AF=".$All;
+print join "\t", @F[0..7]'
+done  >> $OUT
 
-gzip -f ESP6500SI.all.snps_indels.vcf
-
-rm  ESP6500SI-V2-SSA137*
+rm ESP6500SI-V2-SSA137*
 
 cd $WDIR
+
+
+
 
 }
 
@@ -684,6 +730,37 @@ tabix -f -s 1 -b 2 -e 3 hg19_UCSC_cytoBand.bed.gz
 }
 
 
+# microRNAs and snoRNAs
+{
+# UCSC offers the wgRna table for snoRNA and microRNAs, based on the miRBase Release and snoRNABase.
+# This track displays positions of four different types of RNA in the human genome:
+
+    #precursor forms of microRNAs (pre-miRNAs)
+    #C/D box small nucleolar RNAs (C/D box snoRNAs)
+    #H/ACA box snoRNAs
+    #small Cajal body-specific RNAs (scaRNAs)
+    
+wget --timestamping 'ftp://hgdownload.cse.ucsc.edu/goldenPath/hg19/database/wgRna.txt.gz' -O hg19_UCSC_wgRna.txt.gz
+zcat hg19_UCSC_wgRna.txt.gz | cut -f 2-5 > tmp.bed
+zcat hg19_UCSC_wgRna.txt.gz | cut -f 2-5 | sed 's/chr//' >> tmp.bed
+cat tmp.bed | sort -k1,1 -k2,2n | bgzip -cf >  hg19_UCSC_wgRna.bed.gz
+tabix -f -s 1 -b 2 -e 3 hg19_UCSC_wgRna.bed.gz
+
+}
+
+# Predicted microRNA binding sites
+{
+# We can also find variants disrupting predicted microRNA binding sites. UCSC provides the TargetScanS annotation database, which shows conserved mammalian microRNA regulatory target sites for conserved microRNA families in the 3' UTR regions of Refseq Genes, as predicted by TargetScanHuman.	
+# This track shows conserved mammalian microRNA regulatory target sites for conserved microRNA families in the 3' UTR regions of Refseq Genes, as predicted by TargetScanHuman 5.1.
+
+wget --timestamping 'ftp://hgdownload.cse.ucsc.edu/goldenPath/hg19/database/targetScanS.txt.gz' -O hg19_UCSC_targetScanS.txt.gz
+zcat hg19_UCSC_targetScanS.txt.gz | cut -f 2-5 > tmp.bed
+zcat hg19_UCSC_targetScanS.txt.gz | cut -f 2-5 | sed 's/chr//' >> tmp.bed
+cat tmp.bed | sort -k1,1 -k2,2n | bgzip -cf >  hg19_UCSC_targetScanS.bed.gz
+tabix -f -s 1 -b 2 -e 3 hg19_UCSC_targetScanS.bed.gz
+
+}
+
 cd $WDIR
 
 }
@@ -999,6 +1076,40 @@ merge.pl -a -empty none -1 1 -2 1 so.terms so_snpEff.terms | sed 's/def://' | so
 
 cd $WDIR
 }
+
+
+# 14. LOW COMPLEXITY REGIONS
+{
+# Low-complexity filter (LC): filtering variants overlapping with low-complexity regions (LCRs) identified with the mdust program (http://bit.ly/mdust-LC), which is a stand-alone implementation of the DUST algorithm first used by BLAST. 
+
+WDIR=$PWD
+mkdir -p LOWCOMPLEX/
+cd LOWCOMPLEX
+
+# List of Low Complex regions from Heng Li paper : Towards Better Understanding of Artifacts in Variant Calling from High-Coverage Samples
+# Archive paper : http://arxiv.org/abs/1404.0929
+
+# Low Complexity Regions : LCR-hs37d5.bed.gz (see Section 2.4).
+# Low-complexity filter (LC): filtering variants overlapping with low-complexity regions (LCRs) identified with the mdust program (http://bit.ly/mdust-LC), which is a stand-alone implementation of the DUST algorithm first used by BLAST. 
+git clone https://github.com/lh3/varcmp.git
+cp varcmp/scripts/LCR-hs37d5.bed.gz .
+rm -fr varcmp
+gunzip LCR-hs37d5.bed.gz
+
+# MDUST runned by me
+time mdust /well/tomlinson/fcastro/data/genomes/hs37d5/hs37d5.fa -c > hs37d5.mdust.tsv
+time mdust /well/tomlinson/fcastro/data/genomes/hg19/hg19.fasta -c > hg19.mdust.tsv
+
+cat hs37d5.mdust.tsv hg19.mdust.tsv | awk 'BEGIN{FS=OFS="\t"}!/^hs37d5/{print $1,$3,$4,"LCR"}' | bgzip -cf > hg19.LCR.bed.gz
+tabix -f -s 1 -b 2 -e 3 hg19.LCR.bed.gz
+
+cd $WDIR
+}
+
+
+
+1000g.hwe-bad.bed: regions with excessively high read depth and excessive heterozygotes (see Section 3.3.3).
+
 
 
 

@@ -496,7 +496,7 @@ sub _annotation
 	my @SnpSiftSteps = split ",", $$self{SnpSiftAnnot};
 	foreach my $step (@SnpSiftSteps)
 	{
-		if ($step ne "DBNSFP" && $step ne "PHASTCONS" && $step ne "GWASCAT" && $step ne "GENESETS")
+		if ($step ne "DBNSFP" && $step ne "CADD" &&  $step ne "PHASTCONS" && $step ne "GWASCAT" && $step ne "GENESETS")
 		{
 			# Get info fieds from annotation file
 			my @INFO = _extract_INFO_flags_vcf($$self{$step});
@@ -506,6 +506,9 @@ sub _annotation
 			$command .= "mv $tmpFile2 $tmpFile1\n";
 		} elsif ($step eq "DBNSFP") {
 			$command .= "java -Xmx".$$self{SnpSiftMem}." -jar $$self{SnpSift} dbnsfp -v $$self{$step} -f $$self{DBNSFPAnnot} $tmpFile1 | sed 's/GERP++/GERP/g' | sed 's/dbNSFP_//g'  > $tmpFile2\n";
+			$command .= "mv $tmpFile2 $tmpFile1\n";				
+		} elsif ($step eq "CADD") {
+			$command .= "java -Xmx".$$self{SnpSiftMem}." -jar $$self{SnpSift} dbnsfp -v $$self{$step} -f $$self{CADDAnnot} $tmpFile1 | sed 's/dbNSFP_//g'  > $tmpFile2\n";
 			$command .= "mv $tmpFile2 $tmpFile1\n";				
 		} elsif ($step eq "PHASTCONS") {
 			$command .= "java -Xmx".$$self{SnpSiftMem}." -jar $$self{SnpSift} phastCons $$self{$step} $tmpFile1 > $tmpFile2\n";

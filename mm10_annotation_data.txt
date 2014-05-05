@@ -33,6 +33,7 @@ cd PHASTCONS/
 
 lftp -e 'set net:timeout 10; cd goldenPath/mm10/phastCons60way/placental/; mget *placental.wigFix.gz; bye' -u anonymous,fcastro@well.ox.ac.uk hgdownload.cse.ucsc.edu
 cp /well/tomlinson/fcastro/data/genomes/mm10/mm10.fa.gz.fai genome.fai
+cp /well/tomlinson/fcastro/data/genomes/GRCm38.75/GRCm38.75.fa.fai genome.fai
 
 }
 
