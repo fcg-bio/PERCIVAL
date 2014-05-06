@@ -1,135 +1,1111 @@
-# Percival Configuration File
-GENOME=/well/tomlinson/fcastro/data/genomes/hg19/hg19.fasta.gz
-GENOMEUNZIP=/well/tomlinson/fcastro/data/genomes/hg19/hg19.fasta
-SplitFactor=2
-TmpFolder=/well/tomlinson/fcastro/tmp/
+# Download files and databases for annotation of VCF files
 
-# FASTQ trimming
-Prinseq=/Net/fs1/home/fcastro/apps/PRINSEQ/prinseq-lite.pl
-PrinseqArgv=-min_len 35 -trim_qual_left 30 -trim_qual_right 30 -compress
+# 1. Map Mutations to genome annotations 
+{
+	# snpEff: uses GENCODE. In the context of ICGC, we recommend using the GENCODE12 comprehensive set of gene models for all gene-associated annotations and identifying the specific release that was used. We advocate the use of GENCODE annotations because of the detailed and frequently updated annotation of splice variants, pseudogenes and noncoding RNA loci, and the ready accessibility of all data for automated annotation via the Ensembl genome browser13 and the University of California Santa Cruz (UCSC) genome browser14. [from http://www.nature.com/nmeth/journal/v10/n8/full/nmeth.2562.html]
+}
 
-# FASTQ slice
-FastqSlice=/Net/fs1/home/fcastro/apps/FASTQUTILS/fastq-slice
 
-# STAMPY
-BWA=/Net/fs1/home/fcastro/apps/BWA/0.7.8/bwa
-STAMPY=/Net/fs1/home/fcastro/apps/STAMPY/1.0.23/stampy.py
+# 2. Transcript annotation
+{
+mkdir TRANSCRIPT_INFO
 
-# SAMTOOLS
-SAMTOOLS=/Net/fs1/home/fcastro/apps/SAMTOOLS/0.1.19/samtools
-BCFTOOLS=/Net/fs1/home/fcastro/apps/SAMTOOLS/0.1.19/bcftools/bcftools
-MPILEUPPAR=-Q 20 -q 30
-BCFTOOLSPAR=''
+# Canonical transcripts
+{
 
-# GEM
-GEMMAPPER=/users/fcastro/bin/gem-mapper
-GEMMAPPERARGV=-T 3 -q 'offset-33' --max-big-indel-length 24
-GEM2SAM=/users/fcastro/bin/gem-2-sam
-GEM2SAMARGV=-q 'offset-33' -l
+# The canonical transcript is defined as either the longest CDS, if the gene has translated transcripts, or the longest cDNA.http://hgdownload.cse.ucsc.edu/
 
-# Picard Tools
-MDUP=/Net/fs1/home/fcastro/apps/PICARD/1.111/MarkDuplicates.jar
+# ENSEMBL
+#	"The canonical transcript is defined as either the longest CDS, if the gene has translated transcripts, or the longest cDNA. Should a transcript already regarded as canonical not be selected using the above rules, there is support for storing this information in the Ensembl database." (http://blog.kokocinski.net/index.php/canonical-transcripts?blog=2)
+#	For human, the canonical transcript for a gene is set according to the following hierarchy: 1. Longest CCDS translation with no stop codons. 2. If no (1), choose the longest Ensembl/Havana merged translation with no stop codons. 3. If no (2), choose the longest translation with no stop codons. 4. If no translation, choose the longest non-protein-coding transcript.
+#	http://www.biostars.org/p/44763/
 
-# GATK
-GATK=/well/tomlinson/fcastro/apps/GATK//2.5.2/GenomeAnalysisTK.jar
-SplitGenomeFactor=1
-fai2split=/Net/fs1/home/fcastro/devel/UTILS/fai2split.pl
-knownIndels=/well/tomlinson/fcastro/data/gatk/bundle/2.5/hg19/1000G_phase1.indels.hg19.vcf.gz,/well/tomlinson/fcastro/data/gatk/bundle/2.5/hg19/Mills_and_1000G_gold_standard.indels.hg19.vcf.gz
-knownSnps=/well/tomlinson/fcastro/data/gatk/bundle/2.5/hg19/dbsnp_137.hg19.excluding_sites_after_129.vcf.gz,/well/tomlinson/fcastro/data/gatk/bundle/2.5/hg19/hapmap_3.3.hg19.vcf.gz,/well/tomlinson/fcastro/data/gatk/bundle/2.5/hg19/CEUTrio.HiSeq.WGS.b37.bestPractices.phased.hg19.vcf.gz
+WDIR=$PWD
+cd TRANSCRIPT_INFO
+perl ~/devel/UTILS/get_Ensembl_Canonical_Transcripts.pl | awk 'BEGIN{OFS="\t"; print "Transcript\tTXcanonical"} {print $1,1}' > hsapiens.ensembl75.canonical_transcripts.txt
+cd $WDIR
 
-# PLATYPUS
-Platypus=/usr/local/genetics/Platypus_0.5.2/Platypus.py
-PlatypusArgv=--nCPU=1 --filterDuplicates=1 --minMapQual=30 --minBaseQual=20 --bufferSize=500000
-Chromosomes=chrM,chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY
+}
 
-# Annotation Software and Configuration
-AnnotationCPUs=2
-SnpEff=/well/tomlinson/fcastro/apps/SNPEFF/snpEff/snpEff.jar
-SnpEffConf=/well/tomlinson/fcastro/apps/SNPEFF/snpEff/snpEff.config
-SnpSift=/well/tomlinson/fcastro/apps/SNPEFF/snpEff/SnpSift.jar
-vcfAnnotate=/well/tomlinson/fcastro/apps/VCFTOOLS/0.1.12/perl/vcf-annotate
-bcftools=/well/tomlinson/fcastro/apps/BCFTOOLS/bcftools/bcftools
-vcfSort=/well/tomlinson/fcastro/apps/VCFTOOLS/0.1.12/perl/vcf-sort
+# Expression
+{
+WDIR=$PWD
+cd TRANSCRIPT_INFO
 
-# snpEff Annotation Configuration
-#BASIC SnpEffOpt=-v -lof -hgvs -oicr -noStats
-#COMPLETE SnpEffOpt=-v -t -lof -hgvs -oicr -noStats -nextprot -motif -reg CD4 -reg GM06990 -reg GM12878 -reg H1ESC -reg HeLa-S3 -reg HepG2 -reg HMEC -reg HSMM -reg HUVEC -reg IMR90 -reg K562 -reg K562b -reg NH-A -reg NHEK
-SnpEffOpt=-sequenceOntology -v -lof -hgvs -oicr -noStats
-SnpEffMem=4g
-SnpEffData=GRCh37.75
-#SnpEffIntervals=ENCODE,EPIGENOME
+R
+library(biomaRt)
+mart = useMart("ensembl")
+ensembl = useDataset("hsapiens_gene_ensembl", mart = mart)
+atlas <- getBM(attributes = c("ensembl_gene_id", "ensembl_transcript_id", "ccds", "external_gene_id",  "atlas_celltype", "atlas_diseasestate", "atlas_organismpart"), mart = ensembl)
+egenetics <- getBM(attributes = c("ensembl_gene_id", "ensembl_transcript_id", "ccds", "external_gene_id","cell_type","pathology","anatomical_system"), mart = ensembl)
 
-# Other Annotation Options
-SnpSiftMem=2g
-SnpSiftAnnot=DBSNP,CG,WGS500,COSMIC,CLINVAR,GWASCAT,PHASTCONS,GENESETS,DBNSFP,CADD
-RegionAnnotConf=genomicSuperDups,dgv,homoP,rmsk,cpgIslandExt,tfbsConsSites,ccds,recombRate,cytoBand,cse,GRCpatch,mapp
-DBNSFPAnnot='SIFT_score,SIFT_pred,Polyphen2_HDIV_pred,Polyphen2_HVAR_pred,LRT_pred,MutationTaster_pred,MutationAssessor_pred,FATHMM_pred,RadialSVM_pred,LR_pred,CADD_raw,CADD_raw_rankscore,GERP++_RS,phyloP46way_primate,phyloP46way_placental,phyloP100way_vertebrate,SiPhy_29way_logOdds'
-CADDAnnot='CADD,CADD_PHRED'
+q()
 
-# Annotation Files and fields
-# 1. SnpSift
-DBSNP=/well/tomlinson/fcastro/data/annotation/hg19/DBSNP/dbSNP_All.vcf
-1000G=/well/tomlinson/fcastro/data/annotation/hg19/1000G/1000G.wgs.vcf
-ESP6500=/well/tomlinson/fcastro/data/annotation/hg19/ESP6500/ESP6500SI.all.snps_indels.vcf
-CG=/well/tomlinson/fcastro/data/annotation/hg19/CG69/CG69_unrelated_54.vcf
-WGS500=/well/tomlinson/fcastro/data/annotation/hg19/WGS500/WGS500_union_raw_f5.vcf
-COSMIC=/well/tomlinson/fcastro/data/annotation/hg19/COSMIC/CosmicVariants_v68.vcf
-CLINVAR=/well/tomlinson/fcastro/data/annotation/hg19/CLINVAR/clinvar.vcf
-PHASTCONS=/well/tomlinson/fcastro/data/annotation/hg19/PHASTCONS
-GWASCAT=/well/tomlinson/fcastro/data/annotation/hg19/GWAS/gwascatalog.txt
-GENESETS=/well/tomlinson/fcastro/data/annotation/hg19/MSIGDB/msigdb.v4.0.symbols.gmt
-#GENESETS=/well/tomlinson/fcastro/data/annotation/hg19/MSIGDB/cancer.v4.0.symbols.gmt
-DBNSFP=/well/tomlinson/fcastro/data/annotation/hg19/DBNSFP/dbNSFP2.4.txt.gz
-CADD=/well/tomlinson/fcastro/data/annotation/hg19/CADD/CADD_del_SNVs.tsv.gz
+cd $WDIR
 
-# 2. snpEff Intervals (max)
-ENCODE=/well/tomlinson/fcastro/data/annotation/hg19/ENCODE/dnaseI_cellType_Count.stam.125cells.dnaseI.hg19.bed,/well/tomlinson/fcastro/data/annotation/hg19/ENCODE/dnaseI_cellType_List.stam.125cells.dnaseI.hg19.bed,/well/tomlinson/fcastro/data/annotation/hg19/ENCODE/gm12878_chrom_segmentation.consensus.bed,/well/tomlinson/fcastro/data/annotation/hg19/ENCODE/h1hesc_chrom_segmentation.consensus.bed,/well/tomlinson/fcastro/data/annotation/hg19/ENCODE/helas3_chrom_segmentation.consensus.bed,/well/tomlinson/fcastro/data/annotation/hg19/ENCODE/hepg2_chrom_segmentation.consensus.bed,/well/tomlinson/fcastro/data/annotation/hg19/ENCODE/huvec_chrom_segmentation.consensus.bed,/well/tomlinson/fcastro/data/annotation/hg19/ENCODE/k562_chrom_segmentation.consensus.bed,/well/tomlinson/fcastro/data/annotation/hg19/ENCODE/wgEncodeRegTfbsClusteredV3.cell_count.bed
-EPIGENOME=/well/tomlinson/fcastro/data/annotation/hg19/EPIGENOME/BI_Adult_Liver_H3K27me3.peaks.bed,/well/tomlinson/fcastro/data/annotation/hg19/EPIGENOME/BI_Adult_Liver_H3K36me3.peaks.bed,/well/tomlinson/fcastro/data/annotation/hg19/EPIGENOME/BI_Adult_Liver_H3K4me1.peaks.bed,/well/tomlinson/fcastro/data/annotation/hg19/EPIGENOME/BI_Adult_Liver_H3K4me3.peaks.bed,/well/tomlinson/fcastro/data/annotation/hg19/EPIGENOME/BI_Adult_Liver_H3K9ac.peaks.bed,/well/tomlinson/fcastro/data/annotation/hg19/EPIGENOME/BI_Adult_Liver_H3K9me3.peaks.bed,/well/tomlinson/fcastro/data/annotation/hg19/EPIGENOME/BI_Pancreatic_Islets_H3K27me3.peaks.bed,/well/tomlinson/fcastro/data/annotation/hg19/EPIGENOME/BI_Pancreatic_Islets_H3K36me3.peaks.bed,/well/tomlinson/fcastro/data/annotation/hg19/EPIGENOME/BI_Pancreatic_Islets_H3K4me1.peaks.bed,/well/tomlinson/fcastro/data/annotation/hg19/EPIGENOME/BI_Pancreatic_Islets_H3K4me3.peaks.bed,/well/tomlinson/fcastro/data/annotation/hg19/EPIGENOME/BI_Pancreatic_Islets_H3K9ac.peaks.bed,/well/tomlinson/fcastro/data/annotation/hg19/EPIGENOME/BI_Pancreatic_Islets_H3K9me3.peaks.bed,/well/tomlinson/fcastro/data/annotation/hg19/EPIGENOME/BI_Skeletal_Muscle_H3K27ac.peaks.bed,/well/tomlinson/fcastro/data/annotation/hg19/EPIGENOME/BI_Skeletal_Muscle_H3K27me3.peaks.bed,/well/tomlinson/fcastro/data/annotation/hg19/EPIGENOME/BI_Skeletal_Muscle_H3K36me3.peaks.bed,/well/tomlinson/fcastro/data/annotation/hg19/EPIGENOME/BI_Skeletal_Muscle_H3K4me1.peaks.bed,/well/tomlinson/fcastro/data/annotation/hg19/EPIGENOME/BI_Skeletal_Muscle_H3K4me3.peaks.bed,/well/tomlinson/fcastro/data/annotation/hg19/EPIGENOME/BI_Skeletal_Muscle_H3K9ac.peaks.bed,/well/tomlinson/fcastro/data/annotation/hg19/EPIGENOME/BI_Skeletal_Muscle_H3K9me3.peaks.bed,/well/tomlinson/fcastro/data/annotation/hg19/EPIGENOME/UCSD.Adipose_Tissue_H3K27ac.peaks.bed
 
-# 3. Genome Regions / Track. No Ccmmas in Description field (or Bedtools annotate will crash)
-genomicSuperDups=/well/tomlinson/fcastro/data/annotation/hg19/GENOME_TRACKS/hg19_UCSC_segdup.bed.gz
-genomicSuperDups_INFO=key=INFO;ID=genomicSuperDups;Number=1;Type=Integer;Description=Segmental duplications in genome
+}
 
-dgv=/well/tomlinson/fcastro/data/annotation/hg19/GENOME_TRACKS/hg19_UCSC_dgv.bed.gz
-dgv_INFO=key=INFO;ID=dgv;Number=1;Type=String;Description=Database of Genomic Variants that contains annotations for reported structural variations. Type of variation
 
-homoP=/well/tomlinson/fcastro/data/annotation/hg19/GENOME_TRACKS/hg19_UCSC_homoP.bed.gz
-homoP_INFO=key=INFO;ID=homoP;Number=1;Type=Integer;Description=Homopolymer region
+}
 
-rmsk=/well/tomlinson/fcastro/data/annotation/hg19/GENOME_TRACKS/hg19_UCSC_rmsk.bed.gz
-rmsk_INFO=key=INFO;ID=rmsk;Number=1;Type=String;Description=Repeat masker element Type_Name
 
-cpgIslandExt=/well/tomlinson/fcastro/data/annotation/hg19/GENOME_TRACKS/hg19_UCSC_cpgIslandExt.bed.gz
-cpgIslandExt_INFO=key=INFO;ID=cpgIslandExt;Number=1;Type=Float;Description=Percentage of island that is CpG
+# 3. Functional scores annotation
+{
+	
+# dbNSFP
+{
+mkdir DBNSFP
+wget http://sourceforge.net/projects/snpeff/files/databases/dbNSFP2.4.txt.gz.tbi
+wget http://sourceforge.net/projects/snpeff/files/databases/dbNSFP2.4.txt.gz
+mv dbNSFP2.4.txt.gz* DBNSFP/.
 
-tfbsConsSites=/well/tomlinson/fcastro/data/annotation/hg19/GENOME_TRACKS/hg19_UCSC_tfbsConsSites.zScore.bed.gz
-tfbsConsSites_INFO=key=INFO;ID=tfbsConsSites;Number=1;Type=Float;Description=Transcription factor binding sites conserved in the human-mouse-rat alignment. The default Z score cutoff for display in the browser is 2.33, corresponding to a p-value of 0.01. This cutoff can be adjusted at the top of this page
+   #	UPDATE (March 5, 2014): dbNSFP v2.4 is released. A whole genome functional prediction score called CADD was added, along with five more conservation scores (phyloP46way_primate, phyloP100way_vertebrate, phastCons46way_primate, phastCons46way_placental, phastCons100way_vertebarate). To facilitate comparison between scores, we added rank scores for most functional prediction scores and conservation scores, and replacing the  "converted" scores in the previous versions. In short, for a given type of prediction/conservation scores, all its scores in dbNSFP were first ranked and the rankscore is the rank divided by the total number of all its scores. Roughly speaking, the rankscore will range from 0 to 1, and the larger the score, the higher rank the score in dbNSFP, therefore the SNP is more likely to have damaging effect. The zipped database (6.9 Gb in size) can be downloaded from here. We suggest to use "wget -c" to download the zip file. The md5sum of the zip file can be found here. A README file is here. 
 
-wgRna=/well/tomlinson/fcastro/data/annotation/hg19/GENOME_TRACKS/hg19_UCSC_wgRna.bed.gz
-wgRna_INFO=key=INFO;ID=wgRna;Number=1;Type=Float;Description=snoRNA and microRNAs, based on the miRBase Release and snoRNABase
 
-miRNAbs=/well/tomlinson/fcastro/data/annotation/hg19/GENOME_TRACKS/hg19_UCSC_targetScanS.bed.gz
-miRNAbs_INFO=key=INFO;ID=wgRna;Number=1;Type=Float;Description=conserved mammalian microRNA regulatory target sites for conserved microRNA families in the 3' UTR regions of Refseq Genes, as predicted by TargetScanHuman 5.1.
+}
 
-ccds=/well/tomlinson/fcastro/data/annotation/hg19/GENOME_TRACKS/ccds_exons_hg19.bed.gz
-ccds_INFO=key=INFO;ID=ccds;Number=1;Type=String;Description=CCDS exon Id
+# CADD - Combined Annotation–Dependent Depletion
+{
+# integrating diverse genome annotations and scoring any possible human single-nucleotide variant (SNV) or small insertion-deletion (indel) event
+# http://cadd.gs.washington.edu/download
+# http://www.nature.com/ng/journal/vaop/ncurrent/full/ng.2892.html
 
-recombRate=/well/tomlinson/fcastro/data/annotation/hg19/GENOME_TRACKS/hg19_UCSC_recombRate.bed.gz
-recombRate_INFO=key=INFO;ID=recombRate;Number=1;Type=Float;Description=Recombination rate
+mkdir CADD
 
-cytoBand=/well/tomlinson/fcastro/data/annotation/hg19/GENOME_TRACKS/hg19_UCSC_cytoBand.bed.gz
-cytoBand_INFO=key=INFO;ID=cytoBand;Number=1;Type=Float;Description=CytoBand
+# v1.0
+wget http://krishna.gs.washington.edu/download/CADD/v1.0/whole_genome_SNVs.tsv.gz
+wget http://krishna.gs.washington.edu/download/CADD/v1.0/whole_genome_SNVs.tsv.gz.tbi
 
-# 4. Genome Error Prone Regions. No commas in Description field (or Bedtools annotate will crash)
-cse=/well/tomlinson/fcastro/data/annotation/hg19/CSE/GAIIx-hg-8_4.bed.gz
-#cse=/well/tomlinson/fcastro/data/annotation/hg19/CSE/HiSeq-hg-8_4.bed.gz
-cse_INFO=key=INFO;ID=cse;Number=1;Type=Integer;Description=Positions that are prone to context-specific errors (CSEs) by Allhoff BMC Bioinformatics 2013
+# Conver to similar dbNSFP format for snpSift
+zcat whole_genome_SNVs.tsv.gz | sed 1d | head -1 | sed 's/Chrom/chr/' | sed 's/Pos/pos(1-coor)/' | sed 's/Ref/ref/' | sed 's/Alt/alt/' | sed 's/RawScore/CADD/' | sed 's/PHRED/CADD_PHRED/' > CADD_whole_genome_SNVs.tsv
+zcat whole_genome_SNVs.tsv.gz | sed 1,2d >> CADD_whole_genome_SNVs.tsv
+bgzip -f CADD_whole_genome_SNVs.tsv
 
-mapp=/well/tomlinson/fcastro/data/annotation/hg19/MAPABILITY/hg19_UCSC_wgEncodeCrgMapabilityAlign100mer.bed.gz
-mapp_INFO=key=INFO;ID=mapp;Number=1;Type=Float;Description=GEM mappability score. 1 represents a completely unique sequence and 0 representing a sequence that occurs more than 4 times in the genome
+# Create tabix index
+tabix -f -s 1 -b 2 -e 2 CADD_whole_genome_SNVs.tsv.gz
 
-GRCpatch=/well/tomlinson/fcastro/data/annotation/hg19/GRC_PATCH/GRC_patch_regions.bed.gz
-GRCpatch_INFO=key=INFO;ID=GRCpatch;Number=1;Type=String;Description=Association with patch and fix regions from the Genome Reference Consortium
+rm whole_genome_SNVs.tsv.gz*
 
-LCRegions=/well/tomlinson/fcastro/data/annotation/hg19/GRC_PATCH/GRC_patch_regions.bed.gz
-LCRegions_INFO=key=INFO;ID=GRCpatch;Number=1;Type=String;Description=Association with patch and fix regions from the Genome Reference Consortium
+mv CADD_whole_genome_SNVs* CADD/.
+
+
+# Pre-filtering of database PHRED-like score >= 15
+# The last column of the provided files is the PHRED-like (-10*log10(rank/total)) scaled C-score ranking a variant relative to all possible substitutions of the human genome (8.6x10^9). Like explained above, a scaled C-score of greater of equal 10 indicates that these are predicted to be the 10% most deleterious substitutions that you can do to the human genome, a score of greater or equal 20 indicates the 1% most deleterious and so on. 
+#If you would like to apply a cutoff on deleteriousness, e.g. to identify potentially pathogenic variants, we would suggest to put a cutoff somewhere between 10 and 20. Maybe at 15, as this also happens to be the median value for all possible canonical splice site changes and non-synonymous variants. However, there is not a natural choice here -- it is always arbitrary. We therefore recommend integrating C-scores with other evidence and to rank your candidates for follow up rather than hard filtering.
+
+(zcat CADD_whole_genome_SNVs.tsv.gz | head -1 
+zcat CADD_whole_genome_SNVs.tsv.gz | sed 1d | awk '$6 >= 15'  ) | bgzip > CADD_del_SNVs.tsv.gz
+tabix -f -s 1 -b 2 -e 2 CADD_del_SNVs.tsv.gz
+
+
+}
+
+# PhastCons
+{
+# DESCRIPTION (46-way)
+#	This track shows predictions of conserved elements produced by the phastCons program. PhastCons is part of the PHAST (PHylogenetic Analysis with Space/Time models) package. The predictions are based on a phylogenetic hidden Markov model (phylo-HMM), a type of probabilistic model that describes both the process of DNA substitution at each site in a genome and the way this process changes from one site to the next.
+#	This directory contains compressed phastCons scores for multiple alignments of 59 vertebrate genomes to the mouse genome, plus three alternate sets of scores for subsets of species in the alignments.
+
+# FORMAT
+#	Column #1 contains a one-based position coordinate. Column #2 contains a score showing the posterior probability that phastCons's phylogenetic hidden Markov model (HMM) is in its most conserved state at that base position.
+
+# METHODS
+#        Best-in-genome pairwise alignments were generated for each species using blastz, followed by chaining and netting. A multiple alignment was then constructed from these pairwise alignments using multiz. Predictions of conserved elements were then obtained by running phastCons on the multiple alignments with the --most-conserved option.
+#       PhastCons constructs a two-state phylo-HMM with a state for conserved regions and a state for non-conserved regions. The two states share a single phylogenetic model, except that the branch lengths of the tree associated with the conserved state are multiplied by a constant scaling factor rho (0 <= rho <= 1). The free parameters of the phylo-HMM, including the scaling factor rho, are estimated from the data by maximum likelihood using an EM algorithm. This procedure is subject to certain constraints on the "coverage" of the genome by conserved elements and the "smoothness" of the conservation scores. Details can be found in Siepel et al. (2005).
+
+# The predicted conserved elements are segments of the alignment that are likely to have been "generated" by the conserved state of the phylo-HMM. Each element is assigned a log-odds score equal to its log probability under the conserved model minus its log probability under the non-conserved model. The "score" field associated with this track contains transformed log-odds scores, taking values between 0 and 1000. (The scores are transformed using a monotonic function of the form a * log(x) + b.) The raw log odds scores are retained in the "name" field and can be seen on the details page or in the browser when the track's display mode is set to "pack" or "full".
+
+# DOWNLOAD FILES HG19 and prepare folder for snpEff
+WDIR=$PWD
+mkdir -p PHASTCONS/
+cd PHASTCONS/
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr1.phastCons46way.wigFix.gz                  
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr2.phastCons46way.wigFix.gz                  
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr3.phastCons46way.wigFix.gz                  
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr4.phastCons46way.wigFix.gz                  
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr5.phastCons46way.wigFix.gz                  
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr6.phastCons46way.wigFix.gz                  
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr7.phastCons46way.wigFix.gz                  
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr8.phastCons46way.wigFix.gz                  
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr9.phastCons46way.wigFix.gz                  
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr10.phastCons46way.wigFix.gz                 
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr11.phastCons46way.wigFix.gz                 
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr12.phastCons46way.wigFix.gz                 
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr13.phastCons46way.wigFix.gz                 
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr14.phastCons46way.wigFix.gz                 
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr15.phastCons46way.wigFix.gz                 
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr16.phastCons46way.wigFix.gz                 
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr17.phastCons46way.wigFix.gz
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr18.phastCons46way.wigFix.gz                 
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr19.phastCons46way.wigFix.gz                 
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr20.phastCons46way.wigFix.gz                 
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr21.phastCons46way.wigFix.gz                 
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chr22.phastCons46way.wigFix.gz                 
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chrM.phastCons46way.wigFix.gz                  
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chrX.phastCons46way.wigFix.gz                 
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons46way/vertebrate/chrY.phastCons46way.wigFix.gz
+cp /well/tomlinson/fcastro/data/genomes/hg19/hg19.fasta.fai genome.fai
+cd $WDIR
+
+# DOWNLOAD FILES MM10
+mkdir -p phastcons/mm10
+lftp -e 'set net:timeout 10; cd goldenPath/mm10/phastCons60way/placental/; mget *placental.wigFix.gz; bye' -u anonymous,fcastro@well.ox.ac.uk hgdownload.cse.ucsc.edu
+cp /well/tomlinson/fcastro/data/genomes/mm10/mm10.fa.gz.fai genome.fai
+
+}
+
+}
+
+
+# 4. Population Information
+{
+
+# dbSNP
+{
+
+WDIR=$PWD
+mkdir -p DBSNP/
+cd DBSNP/
+wget ftp://ftp.ncbi.nih.gov/snp/organisms/human_9606/VCF/00-All.vcf.gz
+
+# Prepare little database for dbSNP
+zcat 00-All.vcf.gz | head -100 | grep "##" | awk '{if(/^##INFO/){if(/=RS,/ || /=dbSNPBuildID,/ || /=COMMON,/ || /=G5A,/){print $0}} else {print $0}}' >  dbSNP_All.vcf
+echo '##INFO=<ID=GMAF,Number=1,Type=Float,Description="GMAF for 1000 genomes">' >> dbSNP_All.vcf
+zgrep -m 1 "#CHROM" 00-All.vcf.gz >> dbSNP_All.vcf
+
+zgrep -v "#" 00-All.vcf.gz | perl -lane '
+$F[0] = "chr".$F[0];
+$F[2] = ".";
+$INFO="";
+if ($F[7]=~/(RS=\w*)/) {$INFO=$INFO.$1 }
+if ($F[7]=~/(dbSNPBuildID=\w*)/) {$INFO=$INFO.";".$1 }
+if ($F[7]=~/(COMMON=\w*)/) {$INFO=$INFO.";".$1 }
+if ($F[7]=~/;G5A/) {$INFO=$INFO.";G5A=yes"}
+if ($F[7]=~/CAF=\[(.*)\]/){
+	$INFO=$INFO.";CAF=".$1;
+        @CAF=split(",", $1);
+        @SORT=sort {$b <=> $a} @CAF;
+	$INFO=$INFO.";GMAF=".$SORT[1];
+}
+$F[7] = $INFO;
+@ALT=split(",", $F[4]);
+foreach $alt (@ALT) {
+print $F[0]."\t".$F[1]."\t".$F[2]."\t".$F[3]."\t".$alt."\t".$F[5]."\t".$F[6]."\t".$F[7];
+}
+' | sed 's/chrMT/chrM/' >> dbSNP_All.vcf
+
+
+cd $WDIR
+}
+	
+# Complete Genomics
+{
+WDIR=$PWD
+mkdir -p CG69/
+cd CG69/
+
+# Download FTP data
+lftp -e 'set net:timeout 10; cd Feb2011_Release/CGA_Tools_Output/; mget Public_Genomes_Unrelated_54-testvariants-vcf.txt.bz2; bye' -u anonymous,fcastro@well.ox.ac.uk ftp2.completegenomics.com
+
+# Transform VCF file excluding dbSNP variants
+VCF=Public_Genomes_Unrelated_54-testvariants-vcf.txt
+OUT=CG69_unrelated_54.vcf
+
+echo "##fileformat=VCFv4.0" > $OUT
+zgrep -m1 "##INFO=<ID=AF" $VCF | sed 's/Allele Frequency/Complete Genomics 69 genomes Allele Frequency/' | sed 's/ID=AF/ID=CG69AF/' >> $OUT
+zgrep -m1 "#CHROM" $VCF | cut -f 1-8 >> $OUT
+zgrep -v "#"  Public_Genomes_Unrelated_54-testvariants-vcf.txt | grep -v "RSID=dbsnp" | perl -lane '
+$F[2]="";
+$F[7]=~/(AF=[\w\.\,]+);.*/;
+$F[7]=$1;
+$F[7]=~s/AF/CG69AF/;
+print join "\t", @F[0..7]' >> $OUT
+
+gunzip -c CG69_unrelated_54.vcf | awk 'BEGIN{OFS="\t"}{if(!/^#/){$7="PASS"}; print}' | vcf-sort > CG69_unrelated_54.vcf
+
+
+# Some lines have two different alleles. Tranform to on variant per line:
+#Example : 
+#chr1	747704	.	A	AA,AAA	.	PASS	CG69AF=0.07,0.21
+#To :
+#chr1	747704	.	A	AA	.	PASS	CG69AF=0.07
+#chr1	747704	.	A	AAA	.	PASS	CG69AF=0.21
+
+grep "#" CG69_unrelated_54.vcf > tmp
+grep -v "#" CG69_unrelated_54.vcf | perl -lane '@var = split(",",$F[4]); $freq = $F[7]; $freq =~ s/CG69AF=// ; @freq = split(",", $freq); for ($i=0; $i<=$#freq; $i++){print join("\t", @F[0..3])."\t".$var[$i]."\t".join("\t", @F[5..6])."\tCG69AF=".$freq[$i]}' >> tmp
+mv tmp CG69_unrelated_54.vcf
+
+cd $WDIR
+
+}
+
+# 1000G
+{
+	
+WDIR=$PWD
+mkdir -p 1000G/
+cd 1000G/
+
+# Note, despite the date in the filename (20101123), the last modified
+# timestamp on the 1000G site for this download was 10/12/12 1:28:00 PM 
+
+wget --timestamping 'ftp://ftp.ncbi.nlm.nih.gov/1000genomes/ftp/phase1/analysis_results/integrated_call_sets/ALL.wgs.integrated_phase1_v3.20101123.snps_indels_sv.sites.vcf.gz' -O ALL.wgs.integrated_phase1_v3.20101123.snps_indels_sv.sites.2012Oct12.vcf.gz
+
+
+# Transform VCF file excluding dbSNP variant
+VCF=ALL.wgs.integrated_phase1_v3.20101123.snps_indels_sv.sites.2012Oct12.vcf.gz
+OUT=1000G.wgs.vcf
+
+
+zcat "#" $VCF | head -500 | grep "#" | \
+sed 's/ID=AF,/ID=1000Gp1_AF,/' | \
+sed 's/ID=AMR_AF,/ID=1000Gp1_AMR_AF,/' | \
+sed 's/ID=ASN_AF,/ID=1000Gp1_ASN_AF,/' | \
+sed 's/ID=AFR_AF,/ID=1000Gp1_AFR_AF,/' | \
+sed 's/ID=EUR_AF,/ID=1000Gp1_EUR_AF,/' > $OUT
+
+zgrep -v "#" $VCF | \
+sed 's/;AF=/;1000Gp1_AF=/' | \
+sed 's/AMR_AF=/1000Gp1_AMR_AF=/' | \
+sed 's/ASN_AF=/1000Gp1_ASN_AF=/' | \
+sed 's/AFR_AF=/1000Gp1_AFR_AF=/' | \
+sed 's/EUR_AF=/1000Gp1_EUR_AF=/' >> $OUT
+
+cd $WDIR
+}
+
+# Exome Sequencing Project 6500
+{
+
+WDIR=$PWD
+mkdir -p ESP6500/
+cd ESP6500/
+wget http://evs.gs.washington.edu/evs_bulk_data/ESP6500SI-V2-SSA137.protein-hgvs-update.snps_indels.vcf.tar.gz
+tar -xvf ESP6500SI-V2-SSA137.protein-hgvs-update.snps_indels.vcf.tar.gz 
+
+OUT=ESP6500SI.all.snps_indels.vcf
+
+echo "##fileformat=VCFv4.0" > $OUT
+echo "##INFO=<ID=ESP6500_EA_AF,Number=.,Type=String,Description=\"Minor Allele Frequency in percent in ESP6500 EA\">" >> $OUT
+echo "##INFO=<ID=ESP6500_AA_AF,Number=.,Type=String,Description=\"Minor Allele Frequency in percent in ESP6500 AA\">" >> $OUT
+echo "##INFO=<ID=ESP6500_All_AF,Number=.,Type=String,Description=\"Minor Allele Frequency in percent in ESP6500 All\">" >> $OUT
+grep -m 1 "#CHROM" ESP6500SI-V2-SSA137.updatedProteinHgvs.chr1.snps_indels.vcf >> $OUT
+for chr in {1..22} X Y; do
+grep -v "#" ESP6500SI-V2-SSA137.updatedProteinHgvs.chr$chr.snps_indels.vcf | perl -lane '
+$F[2]="";
+$F[7]=~/MAF=([\w\.]+)\,([\w\.]+)\,([\w\.]+);.*/;##INFO=<ID=MAF,Number=.,Type=String,Description="Minor Allele Frequency in percent in the order of EA,AA,All">;
+$EA=$1/100; 
+$EA=0 if($EA<0.0001);
+$AA=$2/100; 
+$AA=0 if($AA<0.0001);
+$All=$3/100; 
+$All=0 if($All<0.0001);
+$F[7]="ESP6500_EA_AF=".$EA.";ESP6500_AA_AF=".$AA.";ESP6500_All_AF=".$All;
+print join "\t", @F[0..7]'
+done  >> $OUT
+
+rm ESP6500SI-V2-SSA137*
+
+cd $WDIR
+
+
+
+
+}
+
+# WGS500
+{
+
+WDIR=$PWD
+mkdir -p WGS500/
+cd WGS500/
+
+# Variants from WGS-500 project
+cp /well/bsg/data/WGS500-ANALYSIS/freeze5/union_raw_f5.vcf.gz WGS500_union_raw_f5.vcf.gz
+zgrep "#" WGS500_union_raw_f5.vcf.gz | sed 's/=TC/=TC500/' | sed 's/=HM/=HM500/' | sed 's/=HT/=HT500/' | sed 's/in union file/in WG500 union file/' > tmp
+zgrep -v "#" WGS500_union_raw_f5.vcf.gz | sed 's/TC=/TC500=/' | sed 's/HM=/HM500=/' | sed 's/HT=/HT500=/' >> tmp
+
+
+# Keep only Frequency in WG500 (PC500) and the total number of ocurrences (TC500)
+grep -m1 "##fileformat" tmp > tmp2
+grep -m1 "##INFO=<ID=TC500" tmp >> tmp2
+printf "##INFO=<ID=PC500,Number=1,Type=Float,Description=\"Proportion of occurrences in WG500 union file\">\n" >> tmp2
+grep -m1 "#CHROM" tmp >> tmp2
+grep -v "#" tmp | perl -lane '$info=$F[7]; $info =~ /(TC500)=(\d+);/; print join("\t",@F[0..6])."\t".$1."=".$2.";PC500=".$2/500' >> tmp2
+
+mv tmp2 WGS500_union_raw_f5.vcf
+rm tmp
+
+cd $WDIR
+
+}
+
+}
+
+
+# 5. Disease Phenotype Information
+{
+	
+# COSMIC Mutations
+{
+
+WDIR=$PWD
+mkdir -p COSMIC/
+cd COSMIC/
+
+
+#	VCF file of all coding mutations in cosmic
+wget ftp://ngs.sanger.ac.uk/production/cosmic/CosmicCodingMuts_v68.vcf.gz
+#	VCF file of all non coding mutations in cosmic
+wget ftp://ngs.sanger.ac.uk/production/cosmic/CosmicNonCodingVariants_v68.vcf.gz
+
+# Convert VCF files and create a single VCF with coding and non-coding mutations
+{
+INPUTCOD=CosmicCodingMuts_v68.vcf.gz
+INPUTNONCOD=CosmicNonCodingVariants_v68.vcf.gz
+OUTPUTVCF=CosmicVariants_v68.vcf
+
+zgrep "##" $INPUTCOD | grep -v INFO > tmp
+echo "##INFO=<ID=CNT,Number=1,Type=Integer,Description=\"Cosmic. How many samples have this mutation\">" >> tmp
+echo "##INFO=<ID=Cosmic,Number=1,Type=String,Description=\"Cosmic mutation. Values: coding, noncoding\">" >> tmp
+echo "##INFO=<ID=CosmicID,Number=1,Type=String,Description=\"Cosmic mutation ID\">" >> tmp
+zgrep "#CHROM" $INPUTCOD >> tmp
+zgrep -v "#" $INPUTCOD | perl -lane '@INFO=split(";", $F[7]); foreach(@INFO){if(/CNT=/){ $CNT=$_.";"}}; print join("\t", @F[0..6])."\t".$CNT."Cosmic=coding;CosmicID=".$F[2]' >> tmp
+zgrep -v "#" $INPUTNONCOD | perl -lane '@INFO=split(";", $F[7]); foreach(@INFO){if(/CNT=/){ $CNT=$_.";"}}; print join("\t", @F[0..6])."\t".$CNT."Cosmic=noncoding;CosmicID=".$F[2]' >> tmp
+
+cat tmp | perl /well/tomlinson/fcastro/apps/VCFTOOLS/0.1.10/perl/vcf-sort -c | awk '{if(!/#/){print "chr"$0}else{print}}' | sed 's/chrMT/chrM/'| uniq  > $OUTPUTVCF
+rm tmp
+
+}
+
+
+cd $WDIR
+}
+
+# COSMIC census genes
+{
+
+WDIR=$PWD
+mkdir -p COSMIC/
+cd COSMIC/
+
+# Download list of genes
+# Download cosmic genes for Human (tsv file is malformed. I downloaded the excel file and copied the genes column)
+wget ftp://ftp.sanger.ac.uk/pub/CGP/cosmic/data_export/cancer_gene_census.tsv
+
+dos2unix -c Mac cancer_gene_census.tsv
+# Save into Cosmic_v68_cancer_gene_census.tsv, adding a header and new column. FORMAT:
+#"GENE\tCOSMIC_consensus"
+#"ABL2\tCGC_dom"
+
+cat cancer_gene_census.tsv | awk 'BEGIN{FS="\t";OFS="\t"}{for(i=1; i<=NF; ++i){if($i=="" ){$i="NA"}}; print $_}' | awk 'BEGIN{FS="\t";print "GENE\tCOSMIC_consensus"}!/^Symbol/{
+	Mut="NA";
+	if($6 ~ "yes" && $7 ~ "yes"){Mut="somgl"};
+	if($6 ~ "yes" && $7 ~"NA"){Mut="som"};
+	if($6 ~ "NA" && $7 ~ "yes"){Mut="gl"};
+	print $1"\tCGC_"$12"_"Mut
+}' > Cosmic_cancer_gene_census_v68.tsv
+
+rm cancer_gene_census.tsv
+
+cd $WDIR
+}
+
+# Clinvar
+{
+WDIR=$PWD
+mkdir -p CLINVAR/
+cd CLINVAR/
+
+lftp -e 'set net:timeout 10; cd pub/clinvar/vcf; mget clinvar_*latest*; bye' -u anonymous,fcastro@well.ox.ac.uk ftp.ncbi.nlm.nih.gov
+lftp -e 'set net:timeout 10; cd pub/clinvar/vcf; mget common_and_clinical*latest*; bye' -u anonymous,fcastro@well.ox.ac.uk ftp.ncbi.nlm.nih.gov
+
+zgrep "#" clinvar_00-latest.vcf.gz > clinvar_00-latest.vcf
+zgrep -v "#" clinvar_00-latest.vcf.gz | tr " " "_" >> clinvar_00-latest.vcf
+gzip -f clinvar_00-latest.vcf
+
+
+zgrep "#" clinvar_00-latest.vcf.gz | head -8 > clinvar.vcf
+zgrep "##INFO=<ID=CLNDBN" clinvar_00-latest.vcf.gz >> clinvar.vcf
+zgrep "##INFO=<ID=CLNSIG" clinvar_00-latest.vcf.gz  >> clinvar.vcf
+zgrep "#CHROM" clinvar_00-latest.vcf.gz  >> clinvar.vcf
+zgrep -v "#" clinvar_00-latest.vcf.gz | perl -lane '
+$info=$F[7];
+$info =~ /(CLNDBN=.*);/;
+$CLNDBN=$1;
+$info =~ /(CLNSIG=\d+);/;
+$CLNSIG=$1;
+print join("\t",@F[0..6])."\t".$CLNSIG.";".$CLNDBN' >> clinvar.vcf
+
+
+cd $WDIR
+}
+
+# GWAS catalog
+{
+# GWAS CATALOG DATABASE
+# PROJECT WEB: http://www.genome.gov/gwastudies/
+# DATABSE FILE: http://www.genome.gov/admin/gwascatalog.txt
+
+WDIR=$PWD
+mkdir -p GWAS/
+cd GWAS/
+
+wget http://www.genome.gov/admin/gwascatalog.txt
+
+cd $WDIR
+}
+
+# IntoGen Cancer Drivers
+{
+WDIR=$PWD
+mkdir -p INTOGEN/
+cd INTOGEN/
+
+# Manually download from http://www.intogen.org/web/tcga/v04/downloads?2
+
+# List of high-confidence cancer driver genes
+
+# Table with the list of high-confidence cancer driver genes with their evidences of signals of positive selection in each cancer type. The table contains 6 columns (gene Ensembl id, gene symbol, cancer type, mutation frequency of the gene in the project, MuSiC, FMbias, CLUSTbias, ActiveDriver, MutSig)
+to - HC-driver_genes_stats.tsv
+
+# HC-driver_genes.tsv contains for each gene more than one entry according to cancer type. This is difficult to parse into the mutations table. Selecting only gene name and driver-category we will have a single entry by gene.
+(cut -f 2,10 HC-driver_genes_stats.tsv | head -1; cut -f 2,10 HC-driver_genes_stats.tsv | sed 1d | sort -u) > HC-driver_genes.tsv
+
+
+# List of somatic mutations, their frequency and predicted impact detected in TCGA Pan-Cancer
+
+# Table with the list of all somatic mutations detected in TCGA Pan-Cancer. The table contains genomic coordinates of the variant (chromosome, strand, start, allele), affected gene, protein change, impact (1=high, 2=medium, 3=low, 4=none), number of samples with the mutation, number of samples analyzed, mutation frequency.
+to - TCGA.Pan-Cancer.mutations.tsv
+
+cd $WDIR	
+	
+}
+	
+}
+
+
+# 6. Variant Error Assessment
+{
+
+# UCSC Mappability
+{
+
+WDIR=$PWD
+mkdir -p MAPABILITY/
+cd MAPABILITY/
+
+# Description: http://moma.ki.au.dk/genome-mirror/cgi-bin/hgFileUi?db=hg19&g=wgEncodeMapability
+wget --timestamping 'http://hgdownload.cse.ucsc.edu/gbdb/hg19/bbi/wgEncodeCrgMapabilityAlign100mer.bw' -O hg19_UCSC_wgEncodeCrgMapabilityAlign100mer.bigWig
+
+# Transform from bigWig to wig (executable at http://hgdownload.cse.ucsc.edu/admin/exe/linux.x86_64/)
+bigWigToWig hg19_UCSC_wgEncodeCrgMapabilityAlign100mer.bigWig hg19_UCSC_wgEncodeCrgMapabilityAlign100mer.wig
+rm hg19_UCSC_wgEncodeCrgMapabilityAlign100mer.bigWig
+
+# Transform from bigWig to bed
+hg19_UCSC_wgEncodeCrgMapabilityAlign100mer.wig
+
+/well/tomlinson/fcastro/apps/BEDOPS/bin/wig2bed_bin hg19_UCSC_wgEncodeCrgMapabilityAlign100mer.wig | awk 'BEGIN{FS="\t";OFS="\t"}{print $1,$2,$3,$5}' > tmp.bed
+/well/tomlinson/fcastro/apps/BEDOPS/bin/wig2bed_bin hg19_UCSC_wgEncodeCrgMapabilityAlign100mer.wig | awk 'BEGIN{FS="\t";OFS="\t"}{print $1,$2,$3,$5}' | sed 's/chr//' >> tmp.bed
+cat tmp.bed | awk 'NF==4 && $2<$3' | sort -k1,1 -k2,2n | bgzip -cf > hg19_UCSC_wgEncodeCrgMapabilityAlign100mer.bed.gz
+tabix -f -s 1 -b 2 -e 3 hg19_UCSC_wgEncodeCrgMapabilityAlign100mer.bed.gz
+#rm hg19_UCSC_wgEncodeCrgMapabilityAlign100mer.wig
+#rm tmp.bed
+
+cd $WDIR
+
+}
+
+# CSE
+{
+
+#This archive contains files accompanying our paper
+
+#Discovering motifs that induce sequencing errors
+#(Manuel Allhoff, Alexander Schoenhuth, Marcel Martin,
+#Ivan G. Costa, Sven Rahmann, Tobias Marschall)
+#BMC Bioinformatics, 2013
+
+#For each data set, we provide a track in BED format
+#containing positions that are prone to context-specific
+#errors (CSEs). They contain all occurrences of motifs
+#listed in the appendix of the paper, with respect to 
+#the reference genomes listed in Table 2.
+
+WDIR=$PWD
+mkdir -p CSE/
+cd CSE/
+
+wget http://discovering-cse.googlecode.com/files/cse-tracks.tar.gz
+tar -xvf cse-tracks.tar.gz
+rm cse-tracks.tar.gz
+
+for i in $(ls cse-tracks/*bed); do
+BED=$(basename $i)".gz"
+cat $i | awk '{print $0"\t1"}' > tmp.bed
+cat $i | awk '{print "chr"$0"\t1"}' >> tmp.bed
+cat tmp.bed | sort -k1,1 -k2,2n | bgzip -cf > $BED
+tabix -f -s 1 -b 2 -e 3  $BED
+rm tmp.bed
+done
+
+
+cd $WDIR
+
+}
+
+# GRC_patch_regions
+{
+# From GEMINI : Association with patch and fix regions from the Genome Reference Consortium:
+#http://www.ncbi.nlm.nih.gov/projects/genome/assembly/grc/human/
+#Identifies potential problem regions associated with variant calls.
+#Built with annotation_provenance/make-ncbi-grc-patches.py
+
+WDIR=$PWD
+mkdir -p GRC_PATCH/
+cd GRC_PATCH/
+
+wget https://s3.amazonaws.com/gemini-annotations/GRC_patch_regions.bed.gz
+
+zcat GRC_patch_regions.bed.gz > tmp.bed
+zcat GRC_patch_regions.bed.gz | awk '{print "chr"$0}' >> tmp.bed
+cat tmp.bed | sort -k1,1 -k2,2n | bgzip -cf > GRC_patch_regions.bed.gz
+tabix -f -s 1 -b 2 -e 3 GRC_patch_regions.bed.gz
+rm tmp.bed
+
+cd $WDIR
+
+}
+
+
+}
+
+
+# 7. Genome Regions Annotation
+{
+
+WDIR=$PWD
+mkdir -p GENOME_TRACKS/
+cd GENOME_TRACKS/
+
+# SEGDUP
+{
+	
+#  Segmental Dups - Duplications of >1000 Bases of Non-RepeatMasked Sequence 
+wget --timestamping 'ftp://hgdownload.cse.ucsc.edu/goldenPath/hg19/database/genomicSuperDups.txt.gz' -O hg19_UCSC_segdup.txt.gz
+zcat hg19_UCSC_segdup.txt.gz | cut -f 2-4,6 | awk '!/^chrom/' | uniq > tmp.bed
+zcat hg19_UCSC_segdup.txt.gz | cut -f 2-4,6 | awk '!/^chrom/' | uniq | sed 's/chr//' >> tmp.bed
+mergeBed -i tmp.bed | awk '{print $0"\t1"}' | sort -k1,1 -k2,2n | bgzip -cf > hg19_UCSC_segdup.bed.gz
+tabix -f -s 1 -b 2 -e 3 hg19_UCSC_segdup.bed.gz
+rm tmp.bed
+}	
+
+# DGV
+{
+# Database of Genomic Variants: Structural Variation (CNV, Inversion, In/del) 
+wget --timestamping 'ftp://hgdownload.cse.ucsc.edu/goldenPath/hg19/database/dgvMerged.txt.gz' -O hg19_UCSC_dgv.txt.gz
+zcat hg19_UCSC_dgv.txt.gz | cut -f 2-4,11 | awk '!/^chrom/' | uniq > tmp.bed
+zcat hg19_UCSC_dgv.txt.gz | cut -f 2-4,11 | awk '!/^chrom/' | uniq | sed 's/chr//' >> tmp.bed
+cat tmp.bed | sort -k1,1 -k2,2n | bgzip -cf > hg19_UCSC_dgv.bed.gz
+tabix -f -s 1 -b 2 -e 3 hg19_UCSC_dgv.bed.gz
+rm tmp.bed
+}
+
+# RMSK
+{
+# RepeatMasker - Repeating Elements by RepeatMasker 
+
+# Select Homo Polymers
+wget --timestamping 'ftp://hgdownload.cse.ucsc.edu/goldenPath/hg19/database/rmsk.txt.gz' -O hg19_UCSC_rmsk.txt.gz
+
+zcat hg19_UCSC_rmsk.txt.gz | cut -f 6-8,11- | awk '/\(A\)n/ || /\(C\)n/ || /\(G\)n/ || /\(T\)n/' | awk '{print $1"\t"$2"\t"$3"\t"$8}' > tmp.bed
+zcat hg19_UCSC_rmsk.txt.gz | cut -f 6-8,11- | awk '/\(A\)n/ || /\(C\)n/ || /\(G\)n/ || /\(T\)n/' | awk '{print $1"\t"$2"\t"$3"\t"$8}' | sed 's/chr//' >> tmp.bed
+cat tmp.bed | sort -k1,1 -k2,2n | bgzip -cf > hg19_UCSC_homoP.bed.gz
+tabix -f -s 1 -b 2 -e 3 hg19_UCSC_homoP.bed.gz
+rm tmp.ned
+
+# Other repeats
+zcat hg19_UCSC_rmsk.txt.gz | cut -f 6-8,11- | awk '!/\(A\)n/ && !/\(C\)n/ && !/\(G\)n/ && !/\(T\)n/ {print $1"\t"$2"\t"$3"\t"$5"_"$6}' > tmp.bed
+zcat hg19_UCSC_rmsk.txt.gz | cut -f 6-8,11- | awk '!/\(A\)n/ && !/\(C\)n/ && !/\(G\)n/ && !/\(T\)n/ {print $1"\t"$2"\t"$3"\t"$5"_"$6}' | sed 's/chr//' >> tmp.bed
+cat tmp.bed | sort -k1,1 -k2,2n | bgzip -cf > hg19_UCSC_rmsk.bed.gz
+tabix -f -s 1 -b 2 -e 3 hg19_UCSC_rmsk.bed.gz
+rm tmp.bed
+
+}
+
+# CpG
+{
+# Annotation BED file 4th column : Percentage of island that is CpG
+wget --timestamping 'ftp://hgdownload.cse.ucsc.edu/goldenPath/hg19/database/cpgIslandExt.txt.gz' -O hg19_UCSC_cpgIslandExt.txt.gz
+
+zcat hg19_UCSC_cpgIslandExt.txt.gz | cut -f 2-4,9 > tmp.bed
+zcat hg19_UCSC_cpgIslandExt.txt.gz | cut -f 2-4,9 | sed 's/chr//' >> tmp.bed
+cat tmp.bed | sort -k1,1 -k2,2n | bgzip -cf > hg19_UCSC_cpgIslandExt.bed.gz
+tabix -f -s 1 -b 2 -e 3 hg19_UCSC_cpgIslandExt.bed.gz
+rm tmp.bed
+
+}
+
+# TF 
+{
+# Source : UCSC
+# TFBS Conserved - HMR Conserved Transcription Factor Binding Sites 
+
+# Description :
+
+	# This track contains the location and score of transcription factor binding sites conserved in the human/mouse/rat alignment. A binding site is considered to be conserved across the alignment if its score meets the threshold score for its binding matrix in all 3 species. The score and threshold are computed with the Transfac Matrix Database (v7.0) created by Biobase. The data are purely computational, and as such not all binding sites listed here are biologically functional binding sites.
+
+	# In the graphical display, each box represents one conserved putative tfbs. Clicking on a box brings up detailed information on the binding site, namely its Transfac I.D., a link to its Transfac Matrix (free registration with Transfac required), its location in the human genome (chromosome, start, end, and strand), its length in bases, its raw score, and its Z score.
+
+	# All binding factors that are known to bind to the particular binding matrix of the binding site are listed along with their species, SwissProt ID, and a link to that factors page on the UCSC Protein Browser if such an entry exists. 
+
+
+wget --timestamping 'http://hgdownload.cse.ucsc.edu/goldenPath/hg19/database/tfbsConsSites.txt.gz' -O hg19_UCSC_tfbsConsSites.txt.gz
+
+zcat hg19_UCSC_tfbsConsSites.txt.gz | cut -f 2-5,8 > tmp.bed
+zcat hg19_UCSC_tfbsConsSites.txt.gz | cut -f 2-5,8 | sed 's/chr//' >> tmp.bed
+cat tmp.bed | sort -k1,1 -k2,2n | bgzip -cf > hg19_UCSC_tfbsConsSites.bed.gz
+tabix -f -s 1 -b 2 -e 3 hg19_UCSC_tfbsConsSites.bed.gz
+rm tmp.bed
+
+# Format : bin	chrom	chromStart	chromEnd	name	score	strand	zScore
+# A region can have multiple TF and then, multiple conservation scores. Merge regions and keep maximum Z-score of the region.
+# This final Z score can be interpreted as the number of standard deviations above the mean raw score for that binding matrix across the upstream regions of all RefSeq genes. The default Z score cutoff for display in the browser is 2.33 (corresponding to a p-value of 0.01.) This cutoff can be adjusted at the top of this page.
+
+zcat hg19_UCSC_tfbsConsSites.txt.gz | cut -f 2-5,8 | mergeBed -scores max -i - > tmp.bed
+zcat hg19_UCSC_tfbsConsSites.txt.gz | cut -f 2-5,8 | mergeBed -scores max -i - | sed 's/chr//' >> tmp.bed
+cat tmp.bed | sort -k1,1 -k2,2n | bgzip -cf > hg19_UCSC_tfbsConsSites.zScore.bed.gz
+tabix -f -s 1 -b 2 -e 3 hg19_UCSC_tfbsConsSites.zScore.bed.gz
+rm tmp.bed
+
+}
+
+# CCDS
+{
+# Source:
+# Description:
+	#  The Consensus CDS (CCDS) project is a collaborative effort to identify a core set of human and mouse protein coding regions that are consistently annotated and of high quality. The long term goal is to support convergence towards a standard set of gene annotations. 
+wget ftp://ftp.ncbi.nlm.nih.gov/pub/CCDS/current_human/CCDS.current.txt
+cat CCDS.current.txt | sed 1d | perl -lane '
+for($i=9; $i<$#F; $i++){
+$F[$i] =~ s/\,|\[|\]//g;
+@se = split("-", $F[$i]); 
+$start = $se[0]; 
+$end = $se[1]; 
+if($se[0] > $se[1]){$start=$se[1]; $end=$se[0]}; 
+print "chr".$F[0]."\t".$start."\t".$end."\t".$F[1]."\t".$F[2]."\t".$F[3]."\t".$F[4]."\t".$F[5]
+}
+' | sort -uk1,1 -k2,2n | awk '$2 !~ /\W/ && $3 !~ /\W/' | cut -f 1-3,7 > tmp1
+
+cp tmp1 tmp.bed
+cat tmp1 | sed 's/chr//' >> tmp.bed
+cat tmp.bed | sort -k1,1 -k2,2n | bgzip -cf > ccds_exons_hg19.bed.gz
+tabix -f -s 1 -b 2 -e 3 ccds_exons_hg19.bed.gz
+rm tmp*
+}
+
+# RECOMB RATE
+{
+# Recomb Rate - Recombination Rate from deCODE, Marshfield, or Genethon Maps (deCODE default) 
+wget --timestamping 'ftp://hgdownload.cse.ucsc.edu/goldenPath/hg19/database/recombRate.txt.gz' -O hg19_UCSC_recombRate.txt.gz
+
+zcat hg19_UCSC_recombRate.txt.gz | cut -f 1-3,6 | awk '!/^chrom/' | uniq > tmp.bed
+zcat hg19_UCSC_recombRate.txt.gz | cut -f 1-3,6 | awk '!/^chrom/' | sed 's/chr//' >> tmp.bed
+cat tmp.bed | sort -k1,1 -k2,2n | bgzip -cf >  hg19_UCSC_recombRate.bed.gz
+tabix -f -s 1 -b 2 -e 3 hg19_UCSC_recombRate.bed.gz
+rm tmp.bed
+
+}	
+
+# CytoBand
+{
+# Annotation BED file 4th column : Chromosome Band - Chromosome Bands Localized by FISH Mapping Clones 
+wget --timestamping 'ftp://hgdownload.cse.ucsc.edu/goldenPath/hg19/database/cytoBand.txt.gz' -O hg19_UCSC_cytoBand.txt.gz
+zcat hg19_UCSC_cytoBand.txt.gz | cut -f 1-4 > tmp.bed
+zcat hg19_UCSC_cytoBand.txt.gz | cut -f 1-4 | sed 's/chr//' >> tmp.bed
+cat tmp.bed | sort -k1,1 -k2,2n | bgzip -cf >  hg19_UCSC_cytoBand.bed.gz
+tabix -f -s 1 -b 2 -e 3 hg19_UCSC_cytoBand.bed.gz
+
+}
+
+
+# microRNAs and snoRNAs
+{
+# UCSC offers the wgRna table for snoRNA and microRNAs, based on the miRBase Release and snoRNABase.
+# This track displays positions of four different types of RNA in the human genome:
+
+    #precursor forms of microRNAs (pre-miRNAs)
+    #C/D box small nucleolar RNAs (C/D box snoRNAs)
+    #H/ACA box snoRNAs
+    #small Cajal body-specific RNAs (scaRNAs)
+    
+wget --timestamping 'ftp://hgdownload.cse.ucsc.edu/goldenPath/hg19/database/wgRna.txt.gz' -O hg19_UCSC_wgRna.txt.gz
+zcat hg19_UCSC_wgRna.txt.gz | cut -f 2-5 > tmp.bed
+zcat hg19_UCSC_wgRna.txt.gz | cut -f 2-5 | sed 's/chr//' >> tmp.bed
+cat tmp.bed | sort -k1,1 -k2,2n | bgzip -cf >  hg19_UCSC_wgRna.bed.gz
+tabix -f -s 1 -b 2 -e 3 hg19_UCSC_wgRna.bed.gz
+
+}
+
+# Predicted microRNA binding sites
+{
+# We can also find variants disrupting predicted microRNA binding sites. UCSC provides the TargetScanS annotation database, which shows conserved mammalian microRNA regulatory target sites for conserved microRNA families in the 3' UTR regions of Refseq Genes, as predicted by TargetScanHuman.	
+# This track shows conserved mammalian microRNA regulatory target sites for conserved microRNA families in the 3' UTR regions of Refseq Genes, as predicted by TargetScanHuman 5.1.
+
+wget --timestamping 'ftp://hgdownload.cse.ucsc.edu/goldenPath/hg19/database/targetScanS.txt.gz' -O hg19_UCSC_targetScanS.txt.gz
+zcat hg19_UCSC_targetScanS.txt.gz | cut -f 2-5 > tmp.bed
+zcat hg19_UCSC_targetScanS.txt.gz | cut -f 2-5 | sed 's/chr//' >> tmp.bed
+cat tmp.bed | sort -k1,1 -k2,2n | bgzip -cf >  hg19_UCSC_targetScanS.bed.gz
+tabix -f -s 1 -b 2 -e 3 hg19_UCSC_targetScanS.bed.gz
+
+}
+
+cd $WDIR
+
+}
+
+
+# 8. Gene Sets and Pathways
+{
+
+# MSigDB
+{
+# Download data from : http://www.broadinstitute.org/gsea/downloads.jsp
+# Details in : http://www.broadinstitute.org/gsea/msigdb/collections.jsp#C1
+
+WDIR=$PWD
+mkdir -p MSIGDB/
+cd MSIGDB/
+
+msigdb.v4.0.symbols.gmt	:	All gene sets 
+c1.all.v4.0.symbols.gmt	:	c1: positional gene sets
+c2.all.v4.0.symbols.gmt	:	c2: curated gene sets
+c3.all.v4.0.symbols.gmt	:	c3: motif gene sets
+c4.all.v4.0.symbols.gmt	:	c4: computational gene sets
+c5.all.v4.0.symbols.gmt	:	c5: gene ontology (GO) gene sets
+c6.all.v4.0.symbols.gmt	:	c6: oncogenic signatures gene sets
+c7.all.v4.0.symbols.gmt	:	c7: immunologic signatures gene sets
+
+# C1
+	# Gene sets corresponding to each human chromosome and each cytogenetic band that has at least one gene. (Cytogenetic locations were parsed from HUGO, October 2006, and Unigene, build 197. When there were conflicts, the Unigene entry was used.) These gene sets are helpful in identifying effects related to chromosomal deletions or amplifications, dosage compensation, epigenetic silencing, and other regional effects. 
+
+# C2
+	# Gene sets collected from various sources such as online pathway databases, publications in PubMed, and knowledge of domain experts. The gene set page for each gene set lists its source.
+
+# C3
+	# Gene sets that contain genes that share a cis-regulatory motif that is conserved across the human, mouse, rat, and dog genomes. The motifs are catalogued (Xie et al. 2005) and represent known or likely regulatory elements in promoters and 3\'-UTRs. These gene sets make it possible to link changes in a microarray experiment to a conserved, putative cis-regulatory element. 
+ 
+# C4
+	# Computational gene sets defined by mining large collections of cancer-oriented microarray data. 
+
+# C5
+	# Gene sets are named by GO term and contain genes annotated by that term. GSEA users: Gene set enrichment analysis identifies gene sets consisting of co-regulated genes; GO gene sets are based on ontologies and do not necessarily comprise co-regulated genes.
+
+# C6
+	# Gene sets represent signatures of cellular pathways which are often dis-regulated in cancer. The majority of signatures were generated directly from microarray data from NCBI GEO or from internal unpublished profiling experiments which involved perturbation of known cancer genes. In addition, a small number of oncogenic signatures were curated from scientific publications.
+
+# C7
+	# Gene sets that represent cell states and perturbations within the immune system. The signatures were generated by manual curation of published studies in human and mouse immunology. For each study, pairwise comparisons of relevant classes were made and genes ranked by mutual information. Gene sets correspond to top or bottom genes (FDR < 0.25 or maximum of 200 genes) for each comparison. This resource is generated as part of the Human Immunology Project Consortium (HIPC; http://www.immuneprofiling.org/).
+
+# Merge Cancer Related Gene Sets
+cat c4.all.v4.0.symbols.gmt c6.all.v4.0.symbols.gmt | sort > cancer.v4.0.symbols.gmt 
+ 
+cd $WDIR
+}
+
+}
+
+
+# 9. ENCODE Annotations
+{
+
+# http://genome.ucsc.edu/ENCODE/downloads.html
+
+WDIR=$PWD
+mkdir -p ENCODE/
+cd ENCODE/
+
+# REG TFBS
+{
+
+# Source : UCSC
+# Schema for Txn Fac ChIP V4 - Transcription Factor ChIP-seq V4 (161 factors) with Factorbook motifs from ENCODE  
+#	Description :
+
+	#	This track shows regions of transcription factor binding derived from a large collection of ChIP-seq experiments performed by the ENCODE project, together with DNA binding motifs identified within these regions by the ENCODE Factorbook repository.
+
+	#	Transcription factors (TFs) are proteins that bind to DNA and interact with RNA polymerases to regulate gene expression. Some TFs contain a DNA binding domain and can bind directly to specific short DNA sequences ('motifs'); others bind to DNA indirectly through interactions with TFs containing a DNA binding domain. High-throughput antibody capture and sequencing methods (e.g. chromatin immunoprecipitation followed by sequencing, or 'ChIP-seq') can be used to identify regions of TF binding genome-wide. These regions are commonly called ChIP-seq peaks.
+
+	#	ENCODE TFBS ChIP-seq data were processed using the computational pipeline developed by the ENCODE Analysis Working Group to generate uniform peaks of TF binding. Peaks for 161 transcription factors in 91 cell types are combined here into clusters to produce a summary display showing occupancy regions for each factor and motif sites within the regions when identified. Additional views of the underlying ChIP-seq data and documentation on the methods used to generate it are available from the ENCODE Uniform TFBS track. 
+
+	# Create TF_CELLCOUNT (TF= transcription factor name; CELLCOUNT= number of cells tested that had nonzero signals)
+wget --timestamping 'ftp://hgdownload.cse.ucsc.edu/goldenPath/hg19/database/wgEncodeRegTfbsClusteredV3.txt.gz' -O wgEncodeRegTfbsClusteredV3.txt.gz
+zcat wgEncodeRegTfbsClusteredV3.txt.gz  |  awk 'BEGIN{OFS="\t"}{print $2,$3,$4,$5"_"$7}' > wgEncodeRegTfbsClusteredV3.cell_count.bed.gz
+
+# Source : GEMINI
+# GEMINI Description: 
+	#	Txn Fac ChIP V3 - Transcription Factor ChIP-seq Clusters V3 (161 targets, 189 antibodies) from ENCODE. List of transcription factors that were observed by ENCODE to bind a DNA region. Each hit in the list is constructed as TF_CELLCOUNT (TF= transcription factor name; CELLCOUNT= number of cells tested that had nonzero signals): Provenance: wgEncodeRegTfbsClusteredV2 UCSC table
+# UCSC Description: 
+	#	This track shows regions where transcription factors, proteins responsible for modulating gene transcription, bind to DNA as assayed by ChIP-seq (chromatin immunoprecipitation with antibodies specific to the transcription factor followed by sequencing of the precipitated DNA). Additional views of this dataset and additional documentation on the methods used for this track are available at the ENC TF Binding Supertrack page. The peaks were computed using a uniform pipeline developed by Anshul Kundaje that uses the variation between the two replicates to develop sensible peak thresholds. This track combines data from many different cell lines and transcription-factor targeting antibodies into a relatively dense display. 
+
+wget https://s3.amazonaws.com/gemini-annotations/wgEncodeRegTfbsClusteredV2.cell_count.20130213.bed.gz -O wgEncodeRegTfbsClusteredV2.cell_count.bed.gz
+zcat wgEncodeRegTfbsClusteredV2.cell_count.bed.gz |  awk 'BEGIN{OFS="\t"}{print $1,$2,$3,$4"_"$5}' > wgEncodeRegTfbsClusteredV2.cell_count.bed
+
+}
+
+# DNASEI Hypersensitivity
+{
+
+# Obtained from GEMINI:  DNase1 hypersensitivity sites among 125 cell types
+# Original Source : Provenance: Thurman, et al, Nature, 489, pp. 75-82, 5 Sep. 2012
+
+# 1. Comma separated list of cell types that were observed to have DnaseI hypersensitivity.
+# 2. Count of cell types that were observed to have DnaseI hypersensitivity.
+
+wget https://s3.amazonaws.com/gemini-annotations/stam.125cells.dnaseI.hg19.bed.gz
+
+# Count of cell types that were observed to have DnaseI hypersensitivity.
+zcat stam.125cells.dnaseI.hg19.bed.gz | cut -f 1-4 > dnaseI_cellType_Count.stam.125cells.dnaseI.hg19.bed
+
+# Comma separated list of cell types that were observed to have DnaseI hypersensitivity.
+zcat stam.125cells.dnaseI.hg19.bed.gz | cut -f 1-3,6 > dnaseI_cellType_List.stam.125cells.dnaseI.hg19.bed
+
+}
+
+# ENCODE consensus segmentation prediction: Chromatin State Segmentation by HMM from ENCODE/Broad
+{
+
+# Source : UCSC
+# Schema for Broad ChromHMM - Chromatin State Segmentation by HMM from ENCODE/Broad
+# Cell Types : gm12878, h1hesc, helas3, hepg2, huvec, k562
+#	Description :
+	
+	#	This track displays a chromatin state segmentation for each of nine human cell types. A common set of states across the cell types were learned by computationally integrating ChIP-seq data for nine factors plus input using a Hidden Markov Model (HMM). In total, fifteen states were used to segment the genome, and these states were then grouped and colored to highlight predicted functional elements. 
+	
+	#	Methods	ChIP-seq data from the Broad Histone track was used to generate this track. Data for nine factors plus input and nine cell types was binarized separately at a 200 base pair resolution based on a Poisson background model. The chromatin states were learned from this binarized data using a multivariate Hidden Markov Model (HMM) that explicitly models the combinatorial patterns of observed modifications (Ernst and Kellis, 2010). To learn a common set of states across the nine cell types, first the genomes were concatenated across the cell types. For each of the nine cell types, each 200 base pair interval was then assigned to its most likely state under the model. Detailed information about the model parameters and state enrichments can be found in (Ernst et al, accepted). 
+
+    #State 1 -  Bright Red  - Active Promoter
+    #State 2 -  Light Red  -Weak Promoter
+    #State 3 -  Purple  - Inactive/poised Promoter
+    #State 4 -  Orange  - Strong enhancer
+    #State 5 -  Orange  - Strong enhancer
+    #State 6 -  Yellow  - Weak/poised enhancer
+    #State 7 -  Yellow  - Weak/poised enhancer
+    #State 8 -  Blue  - Insulator
+    #State 9 -  Dark Green  - Transcriptional transition
+    #State 10 -  Dark Green  - Transcriptional elongation
+    #State 11 -  Light Green  - Weak transcribed
+    #State 12 -  Gray  - Polycomb-repressed
+    #State 13 -  Light Gray  - Heterochromatin; low signal
+    #State 14 -  Light Gray  - Repetitive/Copy Number Variation
+    #State 15 -  Light Gray  - Repetitive/Copy Number Variation 
+
+# Source : GEMINI
+# Description: Segway/ChromHMM consensus chromatin segmentation predictions among for 6 Tier 1 ENCODE cell types
+# Original Source : Provenance: Thurman, et al, Nature, 489, pp. 75-82, 5 Sep. 2012
+# Cell Types : gm12878, h1hesc, helas3, hepg2, huvec, k562
+
+	#	CTCF: CTCF-enriched element
+	#	E: Predicted enhancer
+	#	PF: Predicted promoter flanking region
+	#	R: Predicted repressed or low-activity region
+	#	TSS: Predicted promoter region including TSS
+	#	T: Predicted transcribed region
+	#	WE: Predicted weak enhancer or open chromatin cis-regulatory element | unknown: This region of the genome had no functional prediction.
+
+	#	encode_consensus_h1hesc 	STRING 	ENCODE consensus segmentation prediction for h1HESC.
+	#	encode_consensus_helas3 	STRING 	ENCODE consensus segmentation prediction for Helas3.
+	#	encode_consensus_hepg2 	STRING 	ENCODE consensus segmentation prediction for HEPG2.
+	#	encode_consensus_huvec 	STRING 	ENCODE consensus segmentation prediction for HuVEC.
+	#	encode_consensus_k562 	STRING 	ENCODE consensus segmentation prediction for k562.
+
+wget https://s3.amazonaws.com/gemini-annotations/encode.6celltypes.consensus.bedg.gz
+
+# Split file into separate celltypes and reduce the size joining contiguos regions (reduce size)
+for i in {4..9}; do
+CELL=$(zcat encode.6celltypes.consensus.bedg.gz | head -1 | cut -f $i)
+echo $CELL
+zcat encode.6celltypes.consensus.bedg.gz | sed 1d | cut -f1-3,$i | grep -v unknown | perl -lane 'BEGIN{$chr="unk"; $start=0; $end=0; $class="unk"}
+if($F[1] != $end || $F[3] ne $class){
+print $chr."\t".$start."\t".$end."\t".$class if($chr ne "unk");
+$chr=$F[0]; $start=$F[1]; $class=$F[3];$end=$F[2];
+} else {
+$end=$F[2]
+} END { print $chr."\t".$start."\t".$end."\t".$class}' > ${CELL}_chrom_segmentation.consensus.bed
+done
+
+CTCF: CTCF-enriched element
+E: Predicted enhancer
+PF: Predicted promoter flanking region
+R: Predicted repressed or low-activity region
+TSS: Predicted promoter region including TSS
+T: Predicted transcribed region
+WE: Predicted weak enhancer or open chromatin cis-regulatory element | unknown: This region of the genome had no functional prediction.
+
+}
+
+
+cd $WDIR
+}
+
+
+# 10. EPIGENOME project
+{
+WDIR=$PWD
+mkdir -p EPIGENOME/
+cd EPIGENOME/
+
+# Download data from snpEff
+wget http://sourceforge.net/projects/snpeff/files/databases/epigenome_latest.tgz/download
+tar -xvf epigenome_latest.tgz
+mv db/epigenome/*bed .
+rm -r db epigenome_latest.tgz
+cd $WDIR
+}
+
+
+# 11. VISTA enhancers
+{
+# Experimentally validated human enhancers from VISTA (http://enhancer.lbl.gov/frnt_page_n.shtml)
+# Description:
+	# The VISTA Enhancer Browser is a central resource for experimentally validated human and mouse noncoding fragments with gene enhancer activity as assessed in transgenic mice. Most of these noncoding elements were selected for testing based on their extreme conservation in other vertebrates or epigenomic evidence (ChIP-Seq) of putative enhancer marks. The results of this in vivo enhancer screen are provided through this publicly available website.
+
+WDIR=$PWD
+mkdir -p VISTA_ENHANCERS/
+cd VISTA_ENHANCERS
+
+wget https://s3.amazonaws.com/gemini-annotations/hg19.vista.enhancers.20131108.bed.gz
+
+zcat hg19.vista.enhancers.20131108.bed.gz | awk 'BEGIN{OFS="\t"}{print $1,$2,$3,$4"-"$5}' > vista_enhancers.hg19.bed
+cd $WDIR
+	
+}
+
+
+# 12. REGULOME DB
+{
+
+# RegulomeDB is a database that annotates SNPs with known and predicted regulatory elements in the intergenic regions of the H. sapiens genome. Known and predicted regulatory DNA elements include regions of DNAase hypersensitivity, binding sites of transcription factors, and promoter regions that have been biochemically characterized to regulation transcription. Source of these data include public datasets from GEO, the ENCODE project, and published literature.
+
+# To cite RegulomeDB:
+# Boyle AP, Hong EL, Hariharan M, Cheng Y, Schaub MA, Kasowski M, Karczewski KJ, Park J, Hitz BC, Weng S, Cherry JM, Snyder M. Annotation of functional variation in personal genomes using RegulomeDB. Genome Research 2012, 22(9):1790-1797. PMID: 22955989.
+
+WDIR=$PWD
+mkdir -p REGULOMEDB/
+cd REGULOMEDB
+
+# The following links contain all RegulomeDB data from dbSNP132
+wget http://regulome.stanford.edu/downloads/RegulomeDB.dbSNP132.Category1.txt.gz
+wget http://regulome.stanford.edu/downloads/RegulomeDB.dbSNP132.Category2.txt.gz
+wget http://regulome.stanford.edu/downloads/RegulomeDB.dbSNP132.Category3.txt.gz
+wget http://regulome.stanford.edu/downloads/RegulomeDB.dbSNP132.Category4.txt.gz
+wget http://regulome.stanford.edu/downloads/RegulomeDB.dbSNP132.Category5.txt.gz
+wget http://regulome.stanford.edu/downloads/RegulomeDB.dbSNP132.Category6.txt.gz
+wget http://regulome.stanford.edu/downloads/RegulomeDB.dbSNP132.Category7.txt.gz
+
+
+cd $WDIR
+}
+
+
+# 13. DICTIONARIES
+{
+
+WDIR=$PWD
+mkdir -p DICTIONARIES/
+cd DICTIONARIES
+
+# Effect and Impact dictionary with terms from snpEff, Sequence Ontology, VEP and Gemini.
+# File : Variant_EffectAnnotation_Dictionary.tsv
+
+# Sequence ontology
+wget http://sourceforge.net/projects/song/files/Sequence%20Ontology/so_2_5_2/so_2_5_2.obo/download
+# SO: extract terms
+cat so_2_5_2.obo | perl -lane 'if(/^id:/){$id=$F[1]}; if(/^name:/){$name=$F[1]}; if(/^def:/){$def=$_; $def=~s/def:\t//; print $name."\t".$id."\t".$def}' | sort > so.terms
+# SO from snpEff
+{
+printf "SO\tsnpEff_EFFECT\tMutSig_Effect
+exon_lost\tEXON_DELETED\tnonsilent
+frameshift_variant\tFRAME_SHIFT\tnonsilent
+initiator_codon_variant\tSTART_LOST\tnonsilent
+non_conservative_missense_variant\tRARE_AMINO_ACID\tnonsilent
+splice_acceptor_variant\tSPLICE_SITE_ACCEPTOR\tnonsilent
+splice_donor_variant\tSPLICE_SITE_DONOR\tnonsilent
+stop_gained\tSTOP_GAINED\tnonsilent
+stop_lost\tSTOP_LOST\tnonsilent
+coding_sequence_variant\tCODON_CHANGE\tnonsilent
+five_prime_UTR\tUTR_5_DELETED\tnoncoding
+inframe_deletion\tCODON_CHANGE_PLUS_CODON_DELETION\tnonsilent
+inframe_deletion\tCODON_DELETION\tnonsilent
+inframe_insertion\tCODON_CHANGE_PLUS_CODON_INSERTION\tnonsilent
+inframe_insertion\tCODON_INSERTION\tnonsilent
+missense\tNON_SYNONYMOUS_CODING\tnonsilent
+initiator_codon_variant\tNON_SYNONYMOUS_START\tnonsilent
+initiator_codon_variant\tSYNONYMOUS_START\tsilent
+splice_region_variant\tSPLICE_SITE_REGION\tnonsilent
+start_gained\tSTART_GAINED\tnonsilent
+stop_retained_variant\tSYNONYMOUS_STOP\tsilent
+synonymous_variant\tSYNONYMOUS_CODING\tsilent
+3_prime_UTR_variant\tUTR_3_PRIME\tnoncoding
+5_prime_UTR_variant\tUTR_5_PRIME\tnoncoding
+cds\tCDS\tsilent
+chromosome\tCHROMOSOME\tnoncoding
+custom\tCUSTOM\tnoncoding
+downstream_gene_variant\tDOWNSTREAM\tnoncoding
+genome\tGENE\tnoncoding
+intergenic_region\tINTERGENIC\tnoncoding
+intergenic_region\tINTERGENIC_CONSERVED\tnoncoding
+intragenic_variant\tINTRAGENIC\tnoncoding
+intron_variant\tINTRON\tnoncoding
+intron_variant\tINTRON_CONSERVED\tnoncoding
+nc_transcript_variant\tTRANSCRIPT\tnoncoding
+non_coding_exon_variant\tEXON\tnoncoding
+none\tNONE\tnoncoding
+regulatory_region_variant\tREGULATION\tnoncoding
+upstream_gene_variant\tUPSTREAM\tnoncoding
+micro_rna\tMICRO_RNA\tnoncoding
+splice_region_variant\tSPLICE_SITE_BRANCH\tnonsilent
+splice_region_variant\tSPLICE_SITE_BRANCH_U12\tnonsilent
+stop_retained_variant\tNON_SYNONYMOUS_STOP\tnonsilent" > so_snpEff.terms
+
+}
+
+merge.pl -a -empty none -1 1 -2 1 so.terms so_snpEff.terms | sed 's/def://' | sort > so_snpEff_def.terms
+
+
+cd $WDIR
+}
+
+
+# 14. LOW COMPLEXITY REGIONS
+{
+# Low-complexity filter (LC): filtering variants overlapping with low-complexity regions (LCRs) identified with the mdust program (http://bit.ly/mdust-LC), which is a stand-alone implementation of the DUST algorithm first used by BLAST. 
+
+WDIR=$PWD
+mkdir -p LOWCOMPLEX/
+cd LOWCOMPLEX
+
+# List of Low Complex regions from Heng Li paper : Towards Better Understanding of Artifacts in Variant Calling from High-Coverage Samples
+# Archive paper : http://arxiv.org/abs/1404.0929
+
+# Low Complexity Regions : LCR-hs37d5.bed.gz (see Section 2.4).
+# Low-complexity filter (LC): filtering variants overlapping with low-complexity regions (LCRs) identified with the mdust program (http://bit.ly/mdust-LC), which is a stand-alone implementation of the DUST algorithm first used by BLAST. 
+git clone https://github.com/lh3/varcmp.git
+cp varcmp/scripts/LCR-hs37d5.bed.gz .
+rm -fr varcmp
+gunzip LCR-hs37d5.bed.gz
+
+# MDUST runned by me
+time mdust /well/tomlinson/fcastro/data/genomes/hs37d5/hs37d5.fa -c > hs37d5.mdust.tsv
+time mdust /well/tomlinson/fcastro/data/genomes/hg19/hg19.fasta -c > hg19.mdust.tsv
+
+cat hs37d5.mdust.tsv hg19.mdust.tsv | awk 'BEGIN{FS=OFS="\t"}!/^hs37d5/{print $1,$3,$4,"1"}' | bgzip -cf > hg19.LCR.bed.gz
+tabix -f -s 1 -b 2 -e 3 hg19.LCR.bed.gz
+
+cd $WDIR
+}
+
+
+
+
