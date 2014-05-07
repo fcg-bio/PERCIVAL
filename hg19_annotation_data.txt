@@ -1080,7 +1080,7 @@ cd $WDIR
 
 # 14. LOW COMPLEXITY REGIONS
 {
-# Low-complexity filter (LC): filtering variants overlapping with low-complexity regions (LCRs) identified with the mdust program (http://bit.ly/mdust-LC), which is a stand-alone implementation of the DUST algorithm first used by BLAST. 
+# Low-complexity filter (LC): filtering variants overlapping with low-complexity regions (LCRs) identified with the mdust program (http://bit.ly/mdust-LC), which is a stand-alone implementation of the DUST algorithm first used by BLAST. Proposed in Heng Li paper : Towards Better Understanding of Artifacts in Variant Calling from High-Coverage Samples. Archive paper : http://arxiv.org/abs/1404.0929
 
 WDIR=$PWD
 mkdir -p LOWCOMPLEX/
