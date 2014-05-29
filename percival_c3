@@ -23,7 +23,7 @@ sub main
 {
   &usage if (@ARGV < 1);
   my $command = shift(@ARGV);
-  my %func = (map=>\&map, varcall=>\&varcall, annotate=>\&annotate, error=>\&error_check);
+  my %func = (map=>\&map, bamprocess=>\&bamprocess, varcall=>\&varcall, annotate=>\&annotate, error=>\&error_check);
   &{$func{$command}};
 }
 
@@ -35,6 +35,7 @@ sub usage
 
 # Utilities
 map		Fastq mapping and quality control
+bamprocess		Processing of Bam files with deduplicates, IndelRealignment and Score recalibration
 varcall		Variant calling and annotation
 annotate	Variant annotation
 error		Check errors
@@ -165,6 +166,69 @@ sub map
 	chdir $$conf{Wdir};
 	
 }
+
+sub bamprocess
+{
+	# Input Variables
+	my %opts = (CONF=>undef, SUBMIT=>undef, BAM=>undef, ASSUMESORTED=>'T');
+
+	my $result = GetOptions ("c|conf:s"  => \$opts{CONF},
+							"s|submit:s"   => \$opts{SUBMIT},
+							"b:s"   => \$opts{BASHSUBMIT},
+							"assumesorted:s"   => \$opts{ASSUMESORTED},
+							"bam:s"   => \$opts{BAMMAP});	
+
+    
+	my $usage = qq/
+	Usage:  percival bamprocess [options]
+	Options:
+		-c, --conf	REQ <FILE>	Configuration file. [\$opts{CONF}]
+		-bam		REQ <STR> 	Bam file.[\$opts{BAM}]
+		-assumesorted		REQ <STR> 	Assume that Bam file is sorted. Default = T.[\$opts{ASSUMESORTED}]
+		-s, --submit	OPT <BOOLEAN> 	Submit pipeline to Cluster3.[\$opts{SUBMIT}]
+		-b	OPT <BOOLEAN> 	Create bash script to schedule the submit of each individual bash script.[\$opts{BASHSUBMIT}]
+	##\n\n/ ;             
+	
+	die ($usage) if ( !defined $opts{CONF} || !defined $opts{BAMMAP} );
+
+	$opts{usage} = $usage;
+	my $opts = \%opts;
+
+	# PIPELINE CONFIGURATION
+	my $conf = _configure_pipeline($opts, "bamprocess");
+
+	# CHANGE FASTQ DIRECTORY
+	chdir $$conf{dir};
+
+	#
+	
+	# RUNNING BAM PROCESSING
+	
+	#
+
+	my $rmDup_cmd = _rmDup ($conf);
+	my $indelRealignment_cmd = _indelRealignment_launch ($conf);
+	my $baseRecalibrator_cmd = _baseRecalibrator ($conf);
+	
+	my $ir_dep="";
+	if ( defined $$conf{SUBMIT} )
+	{
+		my $rmDup_pid = _qsubmit($rmDup_cmd, $fastq_dep);
+		foreach my $icmd (@{$indelRealignment_cmd}) 
+		{
+			my $pid = _qsubmit($icmd, $rmDup_pid);
+			$ir_dep .= ",".$pid;
+		}
+	}
+		
+
+	
+	# CHANGE WORKING DIRECTORY  
+	chdir $$conf{Wdir};
+	
+}
+
+
 
 sub varcall
 {
@@ -652,7 +716,17 @@ sub _configure_pipeline
 		$$out{FASTQ1} = basename($$self{FASTQ1});
 		$$out{FASTQ2} = basename($$self{FASTQ2});
 	}
+
+	# bamprocess Arguments
+	if ( $command eq 'bamprocess')
+	{
+		$$out{dir} = dirname($$self{BAMMAP});
+		$$out{PREFIX} = basename($$self{BAMMAP});
+		$$out{PREFIX} =~ s/.bam//;
+		$$out{BAMMAP} = basename($$self{BAMMAP});
+	}
 	
+		
 	# Variant Calling Arguments
 	if ( $command eq 'varcall')
 	{
@@ -939,20 +1013,31 @@ sub _indelRealignment
 	my ($self, $i) = @_;
 	my $ibam  = $$self{BAM};
 
-	my $obam  = $$self{PREFIX}."_realigned_".$i.".bam";
+	my $obam  = $$self{PREFIX}."_realigned.bam";
+	$obam  = $$self{PREFIX}."_realigned_".$i.".bam" if($$self{SplitGenomeFactor} > 1);
+	
 	@{$$self{BAMIR}} = () if (!defined $$self{BAMIR});
 	push (@{$$self{BAMIR}}, $obam);
 
 	# Print Command
 	my $cmdout;
-	my $cmdfile = $$self{PREFIX}."_".$i.'_realignment.sh';
-	$cmdout =  CMDFile->new();
-	$cmdout->jobName($$self{PREFIX}."_".$i.'_realignment');
-	$cmdout->initialdir($$self{dir});
-	$cmdout->queue("long.qa");
-	$cmdout->output($$self{dir}."/".$$self{PREFIX}."_".$i.'_realignment_$JOB_ID.out');
-	$cmdout->error($$self{dir}."/".$$self{PREFIX}."_".$i.'_realignment_$JOB_ID.err');
-	$cmdout->cpuTask('2');
+	my $cmdfile = $$self{PREFIX}.'_realignment.sh';
+	$cmdfile = $$self{PREFIX}."_".$i.'_realignment.sh' if($$self{SplitGenomeFactor} > 1);
+	if (!defined $$self{BASHFILESUBMIT})
+	{
+		$cmdout =  CMDFile->new();
+		$cmdout->jobName($$self{PREFIX}."_".$i.'_realignment');
+		$cmdout->initialdir($$self{dir});
+		$cmdout->queue("long.qa");
+		$cmdout->output($$self{dir}."/".$$self{PREFIX}."_".$i.'_realignment_$JOB_ID.out');
+		$cmdout->error($$self{dir}."/".$$self{PREFIX}."_".$i.'_realignment_$JOB_ID.err');
+		$cmdout->cpuTask('2');
+	} else {
+		$cmdout =  BASHFile->new();
+		$cmdout->initialdir($$self{dir});	
+	}
+	
+	
 
 	my $command = "";
 
@@ -961,7 +1046,7 @@ sub _indelRealignment
 	$command .= "\ntime java -Xmx4g -Djava.io.tmpdir=$$self{TmpFolder} -jar $$self{GATK} \\";
 	$command .= "\n\t -T RealignerTargetCreator \\";
 	$command .= "\n\t -I $ibam \\";
-	$command .= "\n\t -R $$self{GENOME} \\";
+	$command .= "\n\t -R $$self{GENOMEUNZIP} \\";
 	if( exists $$self{knownIndels} )
 	{
 		my @knownIndels = split(",", $$self{knownIndels});
@@ -978,9 +1063,9 @@ sub _indelRealignment
 	$command .= "\ntime java -Xmx4g -Djava.io.tmpdir=$$self{TmpFolder} -jar $$self{GATK} \\";
 	$command .= "\n\t -T IndelRealigner \\";
 	$command .= "\n\t -I $ibam \\";
-	$command .= "\n\t -R $$self{GENOME} \\";
+	$command .= "\n\t -R $$self{GENOMEUNZIP} \\";
 	$command .= "\n\t -targetIntervals CompleteIndelRealigner.$i.intervals \\";
-	$command .= "\n\t -L $i.split.intervals";
+	$command .= "\n\t -L $i.split.intervals \\";
 	$command .= "\n\t -o $obam";
 	$command .= "\n\t if [ \$? != 0 ]; then echo \"JOB CANCEL : Error in java application\" >&2; exit 1; fi";	
 	
@@ -1000,35 +1085,42 @@ sub _baseRecalibrator
 	# Print Command
 	my $cmdout;
 	my $cmdfile = $$self{PREFIX}.'_recalibration.sh';
-	$cmdout =  CMDFile->new();
-	$cmdout->jobName($$self{PREFIX}.'_recalibration');
-	$cmdout->initialdir($$self{dir});
-	$cmdout->queue("long.qa");
-	$cmdout->output($$self{dir}."/".$$self{PREFIX}.'_recalibration_$JOB_ID.out');
-	$cmdout->error($$self{dir}."/".$$self{PREFIX}.'_recalibration_$JOB_ID.err');
-	$cmdout->cpuTask('1');
 
+	if (!defined $$self{BASHFILESUBMIT})
+	{
+		$cmdout =  CMDFile->new();
+		$cmdout->jobName($$self{PREFIX}.'_recalibration');
+		$cmdout->initialdir($$self{dir});
+		$cmdout->queue("long.qa");
+		$cmdout->output($$self{dir}."/".$$self{PREFIX}.'_recalibration_$JOB_ID.out');
+		$cmdout->error($$self{dir}."/".$$self{PREFIX}.'_recalibration_$JOB_ID.err');
+		$cmdout->cpuTask('1');
+	} else {
+		$cmdout =  BASHFile->new();
+		$cmdout->initialdir($$self{dir});	
+	}
+	
 	#	Base Recalibrator
 	my $command = "\n\necho \"Base Quality Recalibrator \" >&2";	
 	$command .= "\ntime java -Xmx4g -Djava.io.tmpdir=$$self{TmpFolder} -jar $$self{GATK} \\";
 	$command .= "\n\t -T BaseRecalibrator \\";
 	$command .= "\n\t -I ".join(" \\\n\t -I ", @ibam). " \\";
 	$command .= "\n\t -R $$self{GENOME} \\";
-	$command .= "\n\t -BQSR $$self{PREFIX}_recalibration.grp \\";
 	if( exists $$self{knownSnps} )
 	{
 		my @knownSnps = split(",", $$self{knownSnps});
 		$command .= "\n\t -knownSites ".join(" \\\n\t --known ", @knownSnps). " \\";
 	}
-	
+	$command .= "\n\t -BQSR $$self{PREFIX}_recalibration.grp";
+		
 	#	Print Recalibrated Bam
-	$command = "\n\n\necho \"Print Recalibrated Reads \" >&2";	
+	$command .= "\n\n\necho \"Print Recalibrated Reads \" >&2";	
 	$command .= "\ntime java -Xmx4g -Djava.io.tmpdir=$$self{TmpFolder} -jar $$self{GATK} \\";
 	$command .= "\n\t -T PrintReads \\";
 	$command .= "\n\t -I ".join(" \\\n\t -I ", @ibam). " \\";
-	$command .= "\n\t -R $$self{GENOME} \\";
+	$command .= "\n\t -R $$self{GENOMEUNZIP} \\";
 	$command .= "\n\t -BQSR $$self{PREFIX}_recalibration.grp \\";
-	$command .= "\n\t -o $obam \\";
+	$command .= "\n\t -o $obam";
 	
 	$cmdout->command($command);
 	$cmdout->print($cmdfile);

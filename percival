@@ -23,7 +23,7 @@ sub main
 {
   &usage if (@ARGV < 1);
   my $command = shift(@ARGV);
-  my %func = (map=>\&map, varcall=>\&varcall, annotate=>\&annotate, error=>\&error_check);
+  my %func = (map=>\&map, bamprocess=>\&bamprocess, varcall=>\&varcall, annotate=>\&annotate, error=>\&error_check);
   &{$func{$command}};
 }
 
@@ -35,6 +35,7 @@ sub usage
 
 # Utilities
 map		Fastq mapping and quality control
+bamprocess		Processing of Bam files with deduplicates, IndelRealignment and Score recalibration
 varcall		Variant calling and annotation
 annotate	Variant annotation
 error		Check errors
@@ -255,6 +256,92 @@ sub map
 	chdir $$conf{Wdir};
 	
 }
+
+sub bamprocess
+{
+	# Input Variables
+	my %opts = (CONF=>undef, SUBMIT=>undef, BAM=>undef, ASSUMESORTED=>'T');
+
+	my $result = GetOptions ("c|conf:s"  => \$opts{CONF},
+							"s|submit:s"   => \$opts{SUBMIT},
+							"b:s"   => \$opts{BASHSUBMIT},
+							"assumesorted:s"   => \$opts{ASSUMESORTED},
+							"bam:s"   => \$opts{BAMMAP});	
+
+    
+	my $usage = qq/
+	Usage:  percival bamprocess [options]
+	Options:
+		-c, --conf	REQ <FILE>	Configuration file. [\$opts{CONF}]
+		-bam		REQ <STR> 	Bam file.[\$opts{BAM}]
+		-assumesorted		REQ <STR> 	Assume that Bam file is sorted. Default = T.[\$opts{ASSUMESORTED}]
+		-s, --submit	OPT <BOOLEAN> 	Submit pipeline to Cluster3.[\$opts{SUBMIT}]
+		-b	OPT <BOOLEAN> 	Create bash script to schedule the submit of each individual bash script.[\$opts{BASHSUBMIT}]
+	##\n\n/ ;             
+	
+	die ($usage) if ( !defined $opts{CONF} || !defined $opts{BAMMAP} );
+
+	$opts{usage} = $usage;
+	my $opts = \%opts;
+
+	# PIPELINE CONFIGURATION
+	my $conf = _configure_pipeline($opts, "bamprocess");
+
+	# CHANGE FASTQ DIRECTORY
+	chdir $$conf{dir};
+
+	#
+	
+	# RUNNING BAM PROCESSING
+	
+	#
+
+	my $rmDup_cmd = _rmDup ($conf);
+	my $indelRealignment_cmd = _indelRealignment_launch ($conf);
+	my $baseRecalibrator_cmd = _baseRecalibrator ($conf);
+	
+	my $ir_dep="";
+	if ( defined $$conf{SUBMIT} )
+	{
+		my $rmDup_pid = _qsubmit($rmDup_cmd);
+		foreach my $icmd (@{$indelRealignment_cmd}) 
+		{
+			my $pid = _qsubmit($icmd, $rmDup_pid);
+			$ir_dep .= ",".$pid;
+		}
+	}
+	
+
+	if ( defined $$opts{BASHSUBMIT} )
+	{
+		open(BASHFILE, ">>", $$opts{BASHFILESUBMIT}) or die "cannot open > $$opts{BASHFILESUBMIT}: $!";
+		print BASHFILE "# BAM PROCESSING\n";
+		print BASHFILE "# Split factor :  $$conf{SplitFactor}\n\n";
+		my $rmDup_err = $rmDup_cmd;
+		$rmDup_err =~ s/.sh/.err/;
+		print BASHFILE "bash $rmDup_cmd 2> $rmDup_err\n";
+		
+		foreach my $icmd (@{$indelRealignment_cmd}) 
+		{
+			my $ierr = $icmd;
+			$ierr =~ s/.sh/.err/;
+			print BASHFILE "bash $icmd 2> $ierr &\n" if($$conf{SplitGenomeFactor} > 1);
+			print BASHFILE "bash $icmd 2> $ierr\n\n" if($$conf{SplitGenomeFactor} == 1);
+		}
+		print BASHFILE "wait\n\n" if($$conf{SplitGenomeFactor} > 1);
+		
+		print BASHFILE "# End of the job\n";
+		print BASHFILE "printf END >&2; uptime >&2\n";
+		close(BASHFILE)
+	}
+	
+
+	
+	# CHANGE WORKING DIRECTORY  
+	chdir $$conf{Wdir};
+	
+}
+
 
 sub varcall
 {
@@ -764,6 +851,15 @@ sub _configure_pipeline
 		$$out{FASTQ2} = basename($$self{FASTQ2});
 	}
 	
+	# bamprocess Arguments
+	if ( $command eq 'bamprocess')
+	{
+		$$out{dir} = dirname($$self{BAMMAP});
+		$$out{PREFIX} = basename($$self{BAMMAP});
+		$$out{PREFIX} =~ s/.bam//;
+		$$out{BAMMAP} = basename($$self{BAMMAP});
+	}
+	
 	# Variant Calling Arguments
 	if ( $command eq 'varcall')
 	{
@@ -1033,7 +1129,8 @@ sub _rmDup
 	my $command = "\n\necho \"Picard Removing Duplicates \" >&2\n\n";	
 
 	$command .= "java -Xmx6g -Djava.io.tmpdir=$$self{TmpFolder} -jar $$self{MDUP} \\";
-	$command .= "\n I=".join(" \\\n I=", @{$$self{BAMMAP}}). " \\";
+	$command .= "\n I=".$$self{BAMMAP}." \\" if (ref($$self{BAMMAP}) ne 'ARRAY');
+	$command .= "\n I=".join(" \\\n I=", @{$$self{BAMMAP}}). " \\" if (ref($$self{BAMMAP}) eq 'ARRAY');
 	$command .= "\n O=$$self{BAM} \\";
 	$command .= "\n METRICS_FILE=".$$self{PREFIX}."_rmdup_metrics.txt \\";
 	$command .= "\n AS=true \\";
@@ -1085,7 +1182,8 @@ sub _indelRealignment
 
 	# Print Command
 	my $cmdout;
-	my $cmdfile = $$self{PREFIX}."_".$i.'_realignment.sh';
+	my $cmdfile = $$self{PREFIX}.'_realignment.sh';
+	$cmdfile = $$self{PREFIX}."_".$i.'_realignment.sh' if($$self{SplitGenomeFactor} > 1);
 	if (!defined $$self{BASHFILESUBMIT})
 	{
 		$cmdout =  CMDFile->new();
@@ -1169,15 +1267,15 @@ sub _baseRecalibrator
 	$command .= "\n\t -T BaseRecalibrator \\";
 	$command .= "\n\t -I ".join(" \\\n\t -I ", @ibam). " \\";
 	$command .= "\n\t -R $$self{GENOME} \\";
-	$command .= "\n\t -BQSR $$self{PREFIX}_recalibration.grp \\";
 	if( exists $$self{knownSnps} )
 	{
 		my @knownSnps = split(",", $$self{knownSnps});
 		$command .= "\n\t -knownSites ".join(" \\\n\t --known ", @knownSnps). " \\";
 	}
-	
+	$command .= "\n\t -BQSR $$self{PREFIX}_recalibration.grp";
+		
 	#	Print Recalibrated Bam
-	$command = "\n\n\necho \"Print Recalibrated Reads \" >&2";	
+	$command .= "\n\n\necho \"Print Recalibrated Reads \" >&2";	
 	$command .= "\ntime java -Xmx4g -Djava.io.tmpdir=$$self{TmpFolder} -jar $$self{GATK} \\";
 	$command .= "\n\t -T PrintReads \\";
 	$command .= "\n\t -I ".join(" \\\n\t -I ", @ibam). " \\";
