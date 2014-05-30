@@ -286,13 +286,16 @@ sub bamprocess
 	$opts{usage} = $usage;
 	my $opts = \%opts;
 	
-	# Conver BAM csv list to array
-	@{$$opts{BAMMAP}} = split ",", $$opts{BAMMAP1};
-
-	
 	# PIPELINE CONFIGURATION
 	my $conf = _configure_pipeline($opts, "bamprocess");
 
+	# Conver BAM csv list to array
+	foreach (split ",", $$conf{BAMMAP1})
+	{
+		$$conf{dir} = dirname ($_);
+		push(@{$$conf{BAMMAP}}, basename($_));
+	}
+	
 	# CHANGE FASTQ DIRECTORY
 	chdir $$conf{dir};	
 	
@@ -854,12 +857,6 @@ sub _configure_pipeline
 		$$out{PREFIX} =~ s/_1.fastq//;
 		$$out{FASTQ1} = basename($$self{FASTQ1});
 		$$out{FASTQ2} = basename($$self{FASTQ2});
-	}
-	
-	# bamprocess Arguments
-	if ( $command eq 'bamprocess')
-	{
-		$$out{dir} = dirname($$self{BAMMAP}[0]);
 	}
 	
 	# Variant Calling Arguments
