@@ -1133,6 +1133,7 @@ sub _rmDup
 	$command .= "\n O=$$self{BAM} \\";
 	$command .= "\n METRICS_FILE=".$$self{PREFIX}."_rmdup_metrics.txt \\";
 	$command .= "\n AS=true \\";
+	$command .= "\n REMOVE_DUPLICATES=true \\";
 	$command .= "\n CREATE_INDEX=true\n\n";
 
 	
