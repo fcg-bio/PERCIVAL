@@ -1213,7 +1213,7 @@ sub _indelRealignment
 		$command .= "\n\t --known ".join(" \\\n\t --known ", @knownIndels). " \\";
 	}
 
-	$command .= "\n\t -o CompleteIndelRealigner.$i.intervals \\";
+	$command .= "\n\t -o $$self{PREFIX}_CompleteIndelRealigner.$i.intervals \\";
 	$command .= "\n\t -L $i.split.intervals";
 	$command .= "\n\t if [ \$? != 0 ]; then echo \"JOB CANCEL : Error in java application\" >&2; exit 1; fi";
 	$command .="\n\n";
@@ -1224,7 +1224,7 @@ sub _indelRealignment
 	$command .= "\n\t -T IndelRealigner \\";
 	$command .= "\n\t -I $ibam \\";
 	$command .= "\n\t -R $$self{GENOMEUNZIP} \\";
-	$command .= "\n\t -targetIntervals CompleteIndelRealigner.$i.intervals \\";
+	$command .= "\n\t -targetIntervals $$self{PREFIX}_CompleteIndelRealigner.$i.intervals \\";
 	$command .= "\n\t -L $i.split.intervals \\";
 	$command .= "\n\t -o $obam";
 	$command .= "\n\t if [ \$? != 0 ]; then echo \"JOB CANCEL : Error in java application\" >&2; exit 1; fi";	
