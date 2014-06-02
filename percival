@@ -1269,9 +1269,9 @@ sub _baseRecalibrator
 	if( exists $$self{knownSnps} )
 	{
 		my @knownSnps = split(",", $$self{knownSnps});
-		$command .= "\n\t -knownSites ".join(" \\\n\t --known ", @knownSnps). " \\";
+		$command .= "\n\t -knownSites ".join(" \\\n\t -knownSites ", @knownSnps). " \\";
 	}
-	$command .= "\n\t -BQSR $$self{PREFIX}_recalibration.grp";
+	$command .= "\n\t -o $$self{PREFIX}_recalibration.grp";
 		
 	#	Print Recalibrated Bam
 	$command .= "\n\n\necho \"Print Recalibrated Reads \" >&2";	
