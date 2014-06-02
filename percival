@@ -1265,7 +1265,7 @@ sub _baseRecalibrator
 	$command .= "\ntime java -Xmx4g -Djava.io.tmpdir=$$self{TmpFolder} -jar $$self{GATK} \\";
 	$command .= "\n\t -T BaseRecalibrator \\";
 	$command .= "\n\t -I ".join(" \\\n\t -I ", @ibam). " \\";
-	$command .= "\n\t -R $$self{GENOME} \\";
+	$command .= "\n\t -R $$self{GENOMEUNZIP} \\";
 	if( exists $$self{knownSnps} )
 	{
 		my @knownSnps = split(",", $$self{knownSnps});
