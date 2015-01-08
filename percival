@@ -600,10 +600,10 @@ sub _annotation
 			$command .= "java -Xmx".$$self{SnpSiftMem}." -jar $$self{SnpSift} annotate -info $info $$self{$step} $tmpFile1 > $tmpFile2\n";
 			$command .= "mv $tmpFile2 $tmpFile1\n";
 		} elsif ($step eq "DBNSFP") {
-			$command .= "java -Xmx".$$self{SnpSiftMem}." -jar $$self{SnpSift} dbnsfp -v $$self{$step} -db $$self{DBNSFPAnnot} $tmpFile1 | sed 's/GERP++/GERP/g' | sed 's/dbNSFP_//g'  > $tmpFile2\n";
+			$command .= "java -Xmx".$$self{SnpSiftMem}." -jar $$self{SnpSift} dbnsfp -v  -db $$self{$step} $$self{DBNSFPAnnot} $tmpFile1 | sed 's/GERP++/GERP/g' | sed 's/dbNSFP_//g'  > $tmpFile2\n";
 			$command .= "mv $tmpFile2 $tmpFile1\n";				
 		} elsif ($step eq "CADD") {
-			$command .= "java -Xmx".$$self{SnpSiftMem}." -jar $$self{SnpSift} dbnsfp -v $$self{$step} -f $$self{CADDAnnot} $tmpFile1 | sed 's/dbNSFP_//g'  > $tmpFile2\n";
+			$command .= "java -Xmx".$$self{SnpSiftMem}." -jar $$self{SnpSift} dbnsfp -v -db $$self{$step} $$self{CADDAnnot} $tmpFile1 | sed 's/dbNSFP_//g'  > $tmpFile2\n";
 			$command .= "mv $tmpFile2 $tmpFile1\n";				
 		} elsif ($step eq "PHASTCONS") {
 			$command .= "java -Xmx".$$self{SnpSiftMem}." -jar $$self{SnpSift} phastCons $$self{$step} $tmpFile1 > $tmpFile2\n";
